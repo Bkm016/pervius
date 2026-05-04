@@ -155,6 +155,7 @@ fn extract_receiver(text: &str, span: &Span) -> Option<String> {
     // 向前检查是否有 "."
     let before = &text[..span.0];
     let trimmed = before.trim_end();
+    let trimmed = trimmed.strip_suffix('`').unwrap_or(trimmed).trim_end();
     if !trimmed.ends_with('.') {
         return None;
     }

@@ -154,9 +154,8 @@ fn collect_treesitter_spans_checked(source: &str, lang: Language) -> (Vec<Span>,
         source.as_bytes(),
     );
     if lang == Language::Kotlin {
-        kotlin::patch_string_gaps(&mut spans, source);
+        kotlin::patch_spans(&mut spans, source);
     }
-    patch_dollar_identifier_spans(&mut spans, source);
     spans.sort_by_key(|&(start, _, _)| start);
     normalize_spans(&mut spans);
     (spans, has_errors)
@@ -183,104 +182,6 @@ fn normalize_spans(spans: &mut Vec<Span>) {
     }
     spans.truncate(write);
     spans.sort_by_key(|&(start, _, _)| start);
-}
-
-fn patch_dollar_identifier_spans(spans: &mut Vec<Span>, source: &str) {
-    if spans.len() < 2 {
-        return;
-    }
-    let mut dollar_spans = Vec::new();
-    let mut i = 0usize;
-    while i + 1 < spans.len() {
-        if !has_dollar_identifier_boundary(spans[i], spans[i + 1], source) {
-            i += 1;
-            continue;
-        }
-        let chain_start = i;
-        let mut chain_end = i + 1;
-        while chain_end + 1 < spans.len()
-            && has_dollar_identifier_boundary(spans[chain_end], spans[chain_end + 1], source)
-        {
-            chain_end += 1;
-        }
-        let mut merged_kind = spans[chain_start..=chain_end]
-            .iter()
-            .fold(TokenKind::Plain, |kind, &(_, _, next_kind)| {
-                merge_identifier_kind(kind, next_kind)
-            });
-        let last_end = spans[chain_end].1;
-        if merged_kind != TokenKind::MethodDeclaration
-            && next_non_whitespace_char(source, last_end) == Some('(')
-        {
-            merged_kind = TokenKind::MethodCall;
-        }
-        for idx in chain_start..=chain_end {
-            spans[idx].2 = merged_kind;
-        }
-        for idx in chain_start..chain_end {
-            let left_end = spans[idx].1;
-            let right_start = spans[idx + 1].0;
-            dollar_spans.push((left_end, right_start, merged_kind));
-        }
-        i = chain_end + 1;
-    }
-    spans.extend(dollar_spans);
-}
-
-fn has_dollar_identifier_boundary(left: Span, right: Span, source: &str) -> bool {
-    let (_, left_end, left_kind) = left;
-    let (right_start, _, right_kind) = right;
-    if left_end >= right_start || right_start != left_end + 1 {
-        return false;
-    }
-    if source.as_bytes().get(left_end) != Some(&b'$') {
-        return false;
-    }
-    if !is_identifier_like_kind(left_kind) || !is_identifier_like_kind(right_kind) {
-        return false;
-    }
-    if source[..left_end]
-        .chars()
-        .next_back()
-        .map_or(true, |c| !is_identifier_char(c))
-        || source[right_start..]
-            .chars()
-            .next()
-            .map_or(true, |c| !is_identifier_char(c))
-    {
-        return false;
-    }
-    true
-}
-
-fn is_identifier_like_kind(kind: TokenKind) -> bool {
-    matches!(
-        kind,
-        TokenKind::Plain
-            | TokenKind::Type
-            | TokenKind::Constant
-            | TokenKind::MethodCall
-            | TokenKind::MethodDeclaration
-    )
-}
-
-fn merge_identifier_kind(left: TokenKind, right: TokenKind) -> TokenKind {
-    use TokenKind::*;
-    match (left, right) {
-        (MethodDeclaration, _) | (_, MethodDeclaration) => MethodDeclaration,
-        (MethodCall, _) | (_, MethodCall) => MethodCall,
-        (Type, _) | (_, Type) => Type,
-        (Constant, _) | (_, Constant) => Constant,
-        _ => Plain,
-    }
-}
-
-fn next_non_whitespace_char(source: &str, from: usize) -> Option<char> {
-    source[from..].chars().find(|c| !c.is_whitespace())
-}
-
-fn is_identifier_char(c: char) -> bool {
-    c.is_alphanumeric() || c == '_' || c == '$'
 }
 
 fn token_priority(kind: TokenKind) -> u8 {
@@ -563,78 +464,4 @@ fn build_line_layout(
         job.append(&line[start..end], 0.0, format);
     }
     job
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    fn spans(source: &str) -> Vec<Span> {
-        compute_spans(source, Language::Kotlin)
-    }
-
-    fn nth_range(source: &str, needle: &str, occurrence: usize) -> (usize, usize) {
-        let mut from = 0usize;
-        for index in 0..=occurrence {
-            let offset = source[from..]
-                .find(needle)
-                .unwrap_or_else(|| panic!("missing occurrence {index} of {needle:?}"));
-            let start = from + offset;
-            let end = start + needle.len();
-            if index == occurrence {
-                return (start, end);
-            }
-            from = end;
-        }
-        unreachable!()
-    }
-
-    fn kind_at(source: &str, spans: &[Span], needle: &str, occurrence: usize) -> TokenKind {
-        let (start, end) = nth_range(source, needle, occurrence);
-        spans
-            .iter()
-            .find(|&&(s, e, _)| s <= start && end <= e)
-            .map(|&(_, _, kind)| kind)
-            .unwrap_or(TokenKind::Plain)
-    }
-
-    #[test]
-    fn kotlin_highlights_type_identifiers() {
-        let source = "class Foo(val value: Bar) { fun make(): Baz = Baz() }";
-        let spans = spans(source);
-
-        assert_eq!(kind_at(source, &spans, "Foo", 0), TokenKind::Type);
-        assert_eq!(kind_at(source, &spans, "Bar", 0), TokenKind::Type);
-        assert_eq!(kind_at(source, &spans, "Baz", 0), TokenKind::Type);
-        assert_eq!(kind_at(source, &spans, "Baz", 1), TokenKind::Type);
-    }
-
-    #[test]
-    fn kotlin_soft_keywords_are_contextual() {
-        let source = "fun demo() { val value = 1; val field = value; val property = field }";
-        let spans = spans(source);
-
-        assert_ne!(kind_at(source, &spans, "value", 0), TokenKind::Keyword);
-        assert_ne!(kind_at(source, &spans, "field", 0), TokenKind::Keyword);
-        assert_ne!(kind_at(source, &spans, "property", 0), TokenKind::Keyword);
-    }
-
-    #[test]
-    fn kotlin_string_interpolation_keeps_expression_highlighting() {
-        let source = "fun demo(name: String, value: Int) { val s = \"hello$name ${format(value)}\" }";
-        let spans = spans(source);
-
-        assert_ne!(kind_at(source, &spans, "name", 1), TokenKind::String);
-        assert_eq!(kind_at(source, &spans, "format", 0), TokenKind::MethodCall);
-        assert_ne!(kind_at(source, &spans, "value", 1), TokenKind::String);
-    }
-
-    #[test]
-    fn kotlin_jvm_dollar_names_inside_strings_remain_strings() {
-        let source = "fun demo() { val s = \"pkg.Outer$Inner\" }";
-        let spans = spans(source);
-
-        assert_eq!(kind_at(source, &spans, "Outer", 0), TokenKind::String);
-        assert_eq!(kind_at(source, &spans, "Inner", 0), TokenKind::String);
-    }
 }

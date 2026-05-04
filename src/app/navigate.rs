@@ -244,10 +244,11 @@ fn find_class_decl(source: &str, name: &str) -> Option<usize> {
 
 /// 搜索方法声明（含方法名 + "("，且行内有返回类型或 void 等声明关键字）
 fn find_method_decl(source: &str, name: &str) -> Option<usize> {
-    let needle = format!("{name}(");
+    let name = name.trim_matches('`');
+    let needles = [format!("{name}("), format!("`{name}`(")];
     for (i, line) in source.lines().enumerate() {
         let trimmed = line.trim();
-        if !trimmed.contains(&needle) {
+        if !needles.iter().any(|needle| trimmed.contains(needle)) {
             continue;
         }
         // 排除纯调用：声明行通常含返回类型关键字或是构造器
@@ -290,6 +291,8 @@ fn find_enum_constant(source: &str, name: &str) -> Option<usize> {
 /// 判断该行是否像一个声明行（含访问修饰符或返回类型关键字）
 fn is_declaration_line(line: &str) -> bool {
     let keywords = [
+        "fun",
+        "constructor",
         "public",
         "private",
         "protected",

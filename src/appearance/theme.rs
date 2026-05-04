@@ -53,8 +53,8 @@ pub const SYN_KEYWORD: egui::Color32 = egui::Color32::from_rgb(207, 142, 109);
 pub const SYN_OPCODE: egui::Color32 = egui::Color32::from_rgb(104, 151, 187);
 /// 字符串 #6AAB73
 pub const SYN_STRING: egui::Color32 = egui::Color32::from_rgb(106, 171, 115);
-/// 类型 / 类名 #4EC9B0
-pub const SYN_TYPE: egui::Color32 = egui::Color32::from_rgb(78, 201, 176);
+/// 类型 / 类名（白色）
+pub const SYN_TYPE: egui::Color32 = TEXT_PRIMARY;
 /// 常量 / 字段 #C77DBB
 pub const SYN_CONSTANT: egui::Color32 = egui::Color32::from_rgb(199, 125, 187);
 /// 数字 #2AACB8

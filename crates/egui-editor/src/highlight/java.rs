@@ -80,8 +80,8 @@ fn classify_identifier(node: &tree_sitter::Node, source: &[u8]) -> Option<TokenK
         "method_invocation" if is_name_field(&parent, node) => {
             return Some(TokenKind::MethodCall);
         }
-        // 普通字段声明 / 访问不再强制用 Constant；仅 ALL_CAPS 保持常量色
-        "field_access" if is_field_name(&parent, node) && is_upper_snake_case(node, source) => {
+        // 成员字段访问统一使用常量色；字段声明仍仅 ALL_CAPS 保持常量色
+        "field_access" if is_field_name(&parent, node) => {
             return Some(TokenKind::Constant);
         }
         "variable_declarator"

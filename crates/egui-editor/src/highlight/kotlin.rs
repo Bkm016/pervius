@@ -4,6 +4,12 @@
 
 use super::{Span, TokenKind};
 
+pub(super) fn patch_spans(spans: &mut Vec<Span>, source: &str) {
+    patch_string_gaps(spans, source);
+    patch_dollar_identifier_spans(spans, source);
+    patch_special_method_name_spans(spans, source);
+}
+
 /// 返回 Some 表示命中着色，None 表示继续深入子节点
 pub fn classify(node: &tree_sitter::Node, source: &[u8]) -> Option<TokenKind> {
     let kind = node.kind();
@@ -118,6 +124,7 @@ fn classify_identifier(node: &tree_sitter::Node, source: &[u8]) -> Option<TokenK
         if is_type_like_identifier(text) {
             return Some(TokenKind::Type);
         }
+        return Some(TokenKind::Constant);
     }
     if parent.kind() == "navigation_expression"
         && is_first_identifier_child(&parent, node)
@@ -353,6 +360,222 @@ fn is_kotlin_identifier_byte(b: u8) -> bool {
     b == b'_' || b.is_ascii_alphanumeric()
 }
 
+fn patch_dollar_identifier_spans(spans: &mut Vec<Span>, source: &str) {
+    if spans.len() < 2 {
+        return;
+    }
+    let mut dollar_spans = Vec::new();
+    let mut i = 0usize;
+    while i + 1 < spans.len() {
+        if !has_dollar_identifier_boundary(spans[i], spans[i + 1], source) {
+            i += 1;
+            continue;
+        }
+        let chain_start = i;
+        let mut chain_end = i + 1;
+        while chain_end + 1 < spans.len()
+            && has_dollar_identifier_boundary(spans[chain_end], spans[chain_end + 1], source)
+        {
+            chain_end += 1;
+        }
+        let mut merged_kind = spans[chain_start..=chain_end]
+            .iter()
+            .fold(TokenKind::Plain, |kind, &(_, _, next_kind)| {
+                merge_identifier_kind(kind, next_kind)
+            });
+        let last_end = spans[chain_end].1;
+        if merged_kind != TokenKind::MethodDeclaration
+            && next_non_whitespace_char(source, last_end) == Some('(')
+        {
+            merged_kind = TokenKind::MethodCall;
+        }
+        for idx in chain_start..=chain_end {
+            spans[idx].2 = merged_kind;
+        }
+        for idx in chain_start..chain_end {
+            let left_end = spans[idx].1;
+            let right_start = spans[idx + 1].0;
+            dollar_spans.push((left_end, right_start, merged_kind));
+        }
+        i = chain_end + 1;
+    }
+    spans.extend(dollar_spans);
+}
+
+fn has_dollar_identifier_boundary(left: Span, right: Span, source: &str) -> bool {
+    let (_, left_end, left_kind) = left;
+    let (right_start, _, right_kind) = right;
+    if left_end >= right_start || right_start != left_end + 1 {
+        return false;
+    }
+    if source.as_bytes().get(left_end) != Some(&b'$') {
+        return false;
+    }
+    if !is_identifier_like_kind(left_kind) || !is_identifier_like_kind(right_kind) {
+        return false;
+    }
+    if source[..left_end]
+        .chars()
+        .next_back()
+        .map_or(true, |c| !is_identifier_char(c))
+        || source[right_start..]
+            .chars()
+            .next()
+            .map_or(true, |c| !is_identifier_char(c))
+    {
+        return false;
+    }
+    true
+}
+
+fn is_identifier_like_kind(kind: TokenKind) -> bool {
+    matches!(
+        kind,
+        TokenKind::Plain
+            | TokenKind::Type
+            | TokenKind::Constant
+            | TokenKind::MethodCall
+            | TokenKind::MethodDeclaration
+    )
+}
+
+fn merge_identifier_kind(left: TokenKind, right: TokenKind) -> TokenKind {
+    use TokenKind::*;
+    match (left, right) {
+        (MethodDeclaration, _) | (_, MethodDeclaration) => MethodDeclaration,
+        (MethodCall, _) | (_, MethodCall) => MethodCall,
+        (Type, _) | (_, Type) => Type,
+        (Constant, _) | (_, Constant) => Constant,
+        _ => Plain,
+    }
+}
+
+fn next_non_whitespace_char(source: &str, from: usize) -> Option<char> {
+    source[from..].chars().find(|c| !c.is_whitespace())
+}
+
+fn is_identifier_char(c: char) -> bool {
+    c.is_alphanumeric() || c == '_' || c == '$'
+}
+
+fn patch_special_method_name_spans(spans: &mut Vec<Span>, source: &str) {
+    let bytes = source.as_bytes();
+    let mut special_spans = Vec::new();
+    let mut i = 0usize;
+    while i < bytes.len() {
+        if bytes[i] == b'`' {
+            let Some(end_tick) = find_next_byte(bytes, i + 1, b'`') else {
+                break;
+            };
+            let name_start = i + 1;
+            let name_end = end_tick;
+            if name_start < name_end
+                && next_non_whitespace_char(source, end_tick + 1) == Some('(')
+                && !range_is_string_or_comment(spans, name_start, name_end)
+            {
+                special_spans.push((
+                    name_start,
+                    name_end,
+                    special_method_kind(source, i),
+                ));
+            }
+            i = end_tick + 1;
+            continue;
+        }
+
+        if !is_special_method_name_start(bytes[i]) {
+            i += 1;
+            continue;
+        }
+        let start = i;
+        let mut end = i + 1;
+        let mut has_special = false;
+        while end < bytes.len() && is_special_method_name_byte(bytes[end]) {
+            has_special |= matches!(bytes[end], b'-' | b'$');
+            end += 1;
+        }
+        if has_special
+            && should_patch_bare_special_method_name(&source[start..end])
+            && next_non_whitespace_char(source, end) == Some('(')
+            && !range_is_string_or_comment(spans, start, end)
+        {
+            special_spans.push((start, end, special_method_kind(source, start)));
+        }
+        i = end;
+    }
+
+    if special_spans.is_empty() {
+        return;
+    }
+    spans.retain(|&(start, end, kind)| {
+        matches!(kind, TokenKind::String | TokenKind::Comment)
+            || !special_spans.iter().any(|&(special_start, special_end, _)| {
+                ranges_overlap(start, end, special_start, special_end)
+            })
+    });
+    spans.extend(special_spans);
+}
+
+fn find_next_byte(bytes: &[u8], mut from: usize, needle: u8) -> Option<usize> {
+    while from < bytes.len() {
+        if bytes[from] == needle {
+            return Some(from);
+        }
+        from += 1;
+    }
+    None
+}
+
+fn is_special_method_name_start(b: u8) -> bool {
+    b == b'_' || b == b'$' || b.is_ascii_alphabetic()
+}
+
+fn is_special_method_name_byte(b: u8) -> bool {
+    matches!(b, b'_' | b'$' | b'-') || b.is_ascii_alphanumeric()
+}
+
+fn should_patch_bare_special_method_name(name: &str) -> bool {
+    name.contains('-')
+        || name.starts_with('$')
+        || name
+            .chars()
+            .next()
+            .is_some_and(|first| first.is_lowercase() && name.contains('$'))
+}
+
+fn range_is_string_or_comment(spans: &[Span], start: usize, end: usize) -> bool {
+    spans.iter().any(|&(span_start, span_end, kind)| {
+        ranges_overlap(span_start, span_end, start, end)
+            && matches!(kind, TokenKind::String | TokenKind::Comment)
+    })
+}
+
+fn ranges_overlap(a_start: usize, a_end: usize, b_start: usize, b_end: usize) -> bool {
+    a_start < b_end && b_start < a_end
+}
+
+fn special_method_kind(source: &str, token_start: usize) -> TokenKind {
+    let line_start = source[..token_start]
+        .rfind('\n')
+        .map_or(0, |index| index + 1);
+    let before = source[line_start..token_start].trim_end();
+    if before.ends_with('.') {
+        return TokenKind::MethodCall;
+    }
+    if before.split_whitespace().any(is_declaration_keyword) {
+        TokenKind::MethodDeclaration
+    } else {
+        TokenKind::MethodCall
+    }
+}
+
+fn is_declaration_keyword(word: &str) -> bool {
+    matches!(
+        word.trim_matches(|c: char| !c.is_alphanumeric() && c != '_'),
+        "fun" | "constructor"
+    )
+}
+
 /// 补齐 Kotlin 字符串中 tree-sitter 未覆盖的片段（常见为引号或错误恢复产生的空白区）。
 pub(super) fn patch_string_gaps(spans: &mut Vec<Span>, source: &str) {
     let bytes = source.as_bytes();
@@ -477,4 +700,98 @@ fn ancestors_contain(node: &tree_sitter::Node, kind: &str, max_depth: usize) -> 
         }
     }
     false
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::highlight::{compute_spans, Language, Span, TokenKind};
+
+    fn spans(source: &str) -> Vec<Span> {
+        compute_spans(source, Language::Kotlin)
+    }
+
+    fn nth_range(source: &str, needle: &str, occurrence: usize) -> (usize, usize) {
+        let mut from = 0usize;
+        for index in 0..=occurrence {
+            let offset = source[from..]
+                .find(needle)
+                .unwrap_or_else(|| panic!("missing occurrence {index} of {needle:?}"));
+            let start = from + offset;
+            let end = start + needle.len();
+            if index == occurrence {
+                return (start, end);
+            }
+            from = end;
+        }
+        unreachable!()
+    }
+
+    fn kind_at(source: &str, spans: &[Span], needle: &str, occurrence: usize) -> TokenKind {
+        let (start, end) = nth_range(source, needle, occurrence);
+        spans
+            .iter()
+            .find(|&&(s, e, _)| s <= start && end <= e)
+            .map(|&(_, _, kind)| kind)
+            .unwrap_or(TokenKind::Plain)
+    }
+
+    #[test]
+    fn highlights_type_identifiers() {
+        let source = "class Foo(val value: Bar) { fun make(): Baz = Baz() }";
+        let spans = spans(source);
+
+        assert_eq!(kind_at(source, &spans, "Foo", 0), TokenKind::Type);
+        assert_eq!(kind_at(source, &spans, "Bar", 0), TokenKind::Type);
+        assert_eq!(kind_at(source, &spans, "Baz", 0), TokenKind::Type);
+        assert_eq!(kind_at(source, &spans, "Baz", 1), TokenKind::Type);
+    }
+
+    #[test]
+    fn soft_keywords_are_contextual() {
+        let source = "fun demo() { val value = 1; val field = value; val property = field }";
+        let spans = spans(source);
+
+        assert_ne!(kind_at(source, &spans, "value", 0), TokenKind::Keyword);
+        assert_ne!(kind_at(source, &spans, "field", 0), TokenKind::Keyword);
+        assert_ne!(kind_at(source, &spans, "property", 0), TokenKind::Keyword);
+    }
+
+    #[test]
+    fn string_interpolation_keeps_expression_highlighting() {
+        let source = "fun demo(name: String, value: Int) { val s = \"hello$name ${format(value)}\" }";
+        let spans = spans(source);
+
+        assert_ne!(kind_at(source, &spans, "name", 1), TokenKind::String);
+        assert_eq!(kind_at(source, &spans, "format", 0), TokenKind::MethodCall);
+        assert_ne!(kind_at(source, &spans, "value", 1), TokenKind::String);
+    }
+
+    #[test]
+    fn jvm_dollar_names_inside_strings_remain_strings() {
+        let source = "fun demo() { val s = \"pkg.Outer$Inner\" }";
+        let spans = spans(source);
+
+        assert_eq!(kind_at(source, &spans, "Outer", 0), TokenKind::String);
+        assert_eq!(kind_at(source, &spans, "Inner", 0), TokenKind::String);
+    }
+
+    #[test]
+    fn accepts_jvm_special_method_names() {
+        let source = "class Demo { fun `load-gIAlu-s`() {} fun caller() { `load-gIAlu-s`(); `$loader`(); walk$default() } }";
+        let spans = spans(source);
+
+        assert_eq!(
+            kind_at(source, &spans, "load-gIAlu-s", 0),
+            TokenKind::MethodDeclaration
+        );
+        assert_eq!(
+            kind_at(source, &spans, "load-gIAlu-s", 1),
+            TokenKind::MethodCall
+        );
+        assert_eq!(kind_at(source, &spans, "$loader", 0), TokenKind::MethodCall);
+        assert_eq!(
+            kind_at(source, &spans, "walk$default", 0),
+            TokenKind::MethodCall
+        );
+    }
 }
