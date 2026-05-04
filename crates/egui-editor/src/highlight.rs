@@ -564,3 +564,77 @@ fn build_line_layout(
     }
     job
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn spans(source: &str) -> Vec<Span> {
+        compute_spans(source, Language::Kotlin)
+    }
+
+    fn nth_range(source: &str, needle: &str, occurrence: usize) -> (usize, usize) {
+        let mut from = 0usize;
+        for index in 0..=occurrence {
+            let offset = source[from..]
+                .find(needle)
+                .unwrap_or_else(|| panic!("missing occurrence {index} of {needle:?}"));
+            let start = from + offset;
+            let end = start + needle.len();
+            if index == occurrence {
+                return (start, end);
+            }
+            from = end;
+        }
+        unreachable!()
+    }
+
+    fn kind_at(source: &str, spans: &[Span], needle: &str, occurrence: usize) -> TokenKind {
+        let (start, end) = nth_range(source, needle, occurrence);
+        spans
+            .iter()
+            .find(|&&(s, e, _)| s <= start && end <= e)
+            .map(|&(_, _, kind)| kind)
+            .unwrap_or(TokenKind::Plain)
+    }
+
+    #[test]
+    fn kotlin_highlights_type_identifiers() {
+        let source = "class Foo(val value: Bar) { fun make(): Baz = Baz() }";
+        let spans = spans(source);
+
+        assert_eq!(kind_at(source, &spans, "Foo", 0), TokenKind::Type);
+        assert_eq!(kind_at(source, &spans, "Bar", 0), TokenKind::Type);
+        assert_eq!(kind_at(source, &spans, "Baz", 0), TokenKind::Type);
+        assert_eq!(kind_at(source, &spans, "Baz", 1), TokenKind::Type);
+    }
+
+    #[test]
+    fn kotlin_soft_keywords_are_contextual() {
+        let source = "fun demo() { val value = 1; val field = value; val property = field }";
+        let spans = spans(source);
+
+        assert_ne!(kind_at(source, &spans, "value", 0), TokenKind::Keyword);
+        assert_ne!(kind_at(source, &spans, "field", 0), TokenKind::Keyword);
+        assert_ne!(kind_at(source, &spans, "property", 0), TokenKind::Keyword);
+    }
+
+    #[test]
+    fn kotlin_string_interpolation_keeps_expression_highlighting() {
+        let source = "fun demo(name: String, value: Int) { val s = \"hello$name ${format(value)}\" }";
+        let spans = spans(source);
+
+        assert_ne!(kind_at(source, &spans, "name", 1), TokenKind::String);
+        assert_eq!(kind_at(source, &spans, "format", 0), TokenKind::MethodCall);
+        assert_ne!(kind_at(source, &spans, "value", 1), TokenKind::String);
+    }
+
+    #[test]
+    fn kotlin_jvm_dollar_names_inside_strings_remain_strings() {
+        let source = "fun demo() { val s = \"pkg.Outer$Inner\" }";
+        let spans = spans(source);
+
+        assert_eq!(kind_at(source, &spans, "Outer", 0), TokenKind::String);
+        assert_eq!(kind_at(source, &spans, "Inner", 0), TokenKind::String);
+    }
+}

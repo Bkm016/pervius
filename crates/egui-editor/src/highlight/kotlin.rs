@@ -39,18 +39,31 @@ pub fn classify(node: &tree_sitter::Node, source: &[u8]) -> Option<TokenKind> {
         "boolean_literal" | "null_literal" => Some(TokenKind::Keyword),
         "integer_literal" | "long_literal" | "hex_literal" | "bin_literal" | "unsigned_literal"
         | "real_literal" => Some(TokenKind::Number),
+        // 字符串容器必须继续递归，否则会把 `${...}` 插值表达式整段吞成 String。
         "string_literal"
         | "line_string_literal"
         | "multi_line_string_literal"
-        | "multiline_string_literal"
-        | "string_content"
+        | "multiline_string_literal" => {
+            if node.child_count() == 0 {
+                Some(TokenKind::String)
+            } else {
+                None
+            }
+        }
+        "string_content"
         | "line_str_text"
         | "multi_line_str_text"
-        | "line_str_ref"
-        | "multi_line_str_ref"
         | "character_literal"
         | "character_escape_seq"
         | "escape_sequence" => Some(TokenKind::String),
+        // 插值容器继续递归；真正的 `$` / `${` / `}` 分隔符低对比度显示。
+        "line_str_ref"
+        | "multi_line_str_ref"
+        | "interpolated_identifier"
+        | "interpolated_expression" => None,
+        "interpolation_expression_start"
+        | "interpolation_expression_end"
+        | "interpolation_identifier_start" => Some(TokenKind::Muted),
         // 注释
         "line_comment" | "multiline_comment" | "shebang_line" => Some(TokenKind::Comment),
         // 注解：递归进子节点，让内部字符串正确着色
@@ -61,7 +74,7 @@ pub fn classify(node: &tree_sitter::Node, source: &[u8]) -> Option<TokenKind> {
             if ancestors_contain(node, "annotation", 6) {
                 Some(TokenKind::Annotation)
             } else {
-                Some(TokenKind::Plain)
+                Some(TokenKind::Type)
             }
         }
         // 标识符
@@ -79,8 +92,10 @@ fn classify_identifier(node: &tree_sitter::Node, source: &[u8]) -> Option<TokenK
     let parent = node.parent()?;
     match parent.kind() {
         // 类型声明名称
-        "class_declaration" | "object_declaration" if is_first_identifier_child(&parent, node) => {
-            return Some(TokenKind::Plain);
+        "class_declaration" | "object_declaration" | "typealias_declaration"
+            if is_first_identifier_child(&parent, node) =>
+        {
+            return Some(TokenKind::Type);
         }
         // enum 条目
         "enum_entry" if is_first_identifier_child(&parent, node) => {
@@ -101,17 +116,17 @@ fn classify_identifier(node: &tree_sitter::Node, source: &[u8]) -> Option<TokenK
             return Some(TokenKind::Constant);
         }
         if is_type_like_identifier(text) {
-            return Some(TokenKind::Plain);
+            return Some(TokenKind::Type);
         }
     }
     if parent.kind() == "navigation_expression"
         && is_first_identifier_child(&parent, node)
         && is_type_like_identifier(text)
     {
-        return Some(TokenKind::Plain);
+        return Some(TokenKind::Type);
     }
-    if is_keyword_identifier(text) {
-        return Some(TokenKind::Keyword);
+    if let Some(token) = classify_contextual_keyword_identifier(node, &parent, text, source) {
+        return Some(token);
     }
     if is_upper_snake_case(text) {
         return Some(TokenKind::Constant);
@@ -131,7 +146,7 @@ fn classify_called_identifier_text(text: &str) -> TokenKind {
     if is_upper_snake_case(text) {
         TokenKind::Constant
     } else if is_type_like_identifier(text) {
-        TokenKind::Plain
+        TokenKind::Type
     } else {
         TokenKind::MethodCall
     }
@@ -160,7 +175,30 @@ fn first_ancestor_of_kind<'tree>(
     None
 }
 
-fn is_keyword_identifier(text: &str) -> bool {
+fn classify_contextual_keyword_identifier(
+    node: &tree_sitter::Node,
+    parent: &tree_sitter::Node,
+    text: &str,
+    source: &[u8],
+) -> Option<TokenKind> {
+    if !is_soft_keyword_identifier(text) {
+        return None;
+    }
+    if kind_contains(parent.kind(), "modifier") || ancestors_kind_contains(node, "modifier", 4) {
+        return Some(TokenKind::Keyword);
+    }
+    if is_annotation_use_site_target(node, parent, text, source) {
+        return Some(TokenKind::Keyword);
+    }
+    match text {
+        "where" if ancestors_kind_contains(node, "constraint", 6) => Some(TokenKind::Keyword),
+        "by" if ancestors_kind_contains(node, "delegat", 6) => Some(TokenKind::Keyword),
+        "field" if is_backing_field_identifier(node) => Some(TokenKind::Keyword),
+        _ => None,
+    }
+}
+
+fn is_soft_keyword_identifier(text: &str) -> bool {
     matches!(
         text,
         "abstract"
@@ -178,6 +216,7 @@ fn is_keyword_identifier(text: &str) -> bool {
             | "field"
             | "file"
             | "final"
+            | "get"
             | "infix"
             | "inline"
             | "inner"
@@ -195,6 +234,7 @@ fn is_keyword_identifier(text: &str) -> bool {
             | "public"
             | "receiver"
             | "sealed"
+            | "set"
             | "setparam"
             | "suspend"
             | "tailrec"
@@ -204,15 +244,43 @@ fn is_keyword_identifier(text: &str) -> bool {
     )
 }
 
+fn is_annotation_use_site_target(
+    node: &tree_sitter::Node,
+    parent: &tree_sitter::Node,
+    text: &str,
+    source: &[u8],
+) -> bool {
+    matches!(
+        text,
+        "field"
+            | "file"
+            | "property"
+            | "get"
+            | "set"
+            | "receiver"
+            | "param"
+            | "setparam"
+            | "delegate"
+    ) && (kind_contains(parent.kind(), "use_site")
+        || ancestors_kind_contains(node, "annotation", 6))
+        && next_non_whitespace_byte_char(source, node.end_byte()) == Some(':')
+}
+
+fn is_backing_field_identifier(node: &tree_sitter::Node) -> bool {
+    ancestors_kind_contains(node, "accessor", 8)
+        || ancestors_kind_contains(node, "getter", 8)
+        || ancestors_kind_contains(node, "setter", 8)
+}
+
 fn is_literal_dollar_identifier(node: &tree_sitter::Node, source: &[u8]) -> bool {
     (node.kind() == "interpolated_identifier"
         || node.kind() == "interpolation_identifier_start"
         || ancestors_contain(node, "interpolated_identifier", 4))
-        && dollar_is_inside_identifier(node.start_byte(), source)
+        && dollar_looks_like_jvm_string_identifier(node.start_byte(), source)
 }
 
 fn classify_jvm_identifier_suffix(node: &tree_sitter::Node, source: &[u8]) -> Option<TokenKind> {
-    if !dollar_is_inside_identifier(node.start_byte(), source) {
+    if !dollar_belongs_to_identifier(node.start_byte(), source) {
         return None;
     }
     if ancestors_contain(node, "function_declaration", 4) {
@@ -228,11 +296,57 @@ fn classify_jvm_identifier_suffix(node: &tree_sitter::Node, source: &[u8]) -> Op
     None
 }
 
-fn dollar_is_inside_identifier(start: usize, source: &[u8]) -> bool {
-    let Some(dollar) = start.checked_sub(1).filter(|&idx| source.get(idx) == Some(&b'$')) else {
+fn dollar_belongs_to_identifier(start: usize, source: &[u8]) -> bool {
+    let Some(dollar) = dollar_index_for_node_start(start, source) else {
         return false;
     };
-    dollar > 0 && source.get(dollar - 1).is_some_and(|&b| is_kotlin_identifier_byte(b))
+    dollar_has_identifier_neighbors(dollar, source)
+}
+
+fn dollar_looks_like_jvm_string_identifier(start: usize, source: &[u8]) -> bool {
+    let Some(dollar) = dollar_index_for_node_start(start, source) else {
+        return false;
+    };
+    if !dollar_has_identifier_neighbors(dollar, source) {
+        return false;
+    }
+    source
+        .get(previous_identifier_start(dollar, source))
+        .is_some_and(|&b| b.is_ascii_uppercase())
+        || source
+            .get(dollar + 1)
+            .is_some_and(|&b| b.is_ascii_uppercase())
+}
+
+fn dollar_index_for_node_start(start: usize, source: &[u8]) -> Option<usize> {
+    if source.get(start) == Some(&b'$') {
+        Some(start)
+    } else {
+        start
+            .checked_sub(1)
+            .filter(|&idx| source.get(idx) == Some(&b'$'))
+    }
+}
+
+fn dollar_has_identifier_neighbors(dollar: usize, source: &[u8]) -> bool {
+    dollar > 0
+        && source
+            .get(dollar - 1)
+            .is_some_and(|&b| is_kotlin_identifier_byte(b))
+        && source
+            .get(dollar + 1)
+            .is_some_and(|&b| is_kotlin_identifier_byte(b))
+}
+
+fn previous_identifier_start(mut index: usize, source: &[u8]) -> usize {
+    while index > 0
+        && source
+            .get(index - 1)
+            .is_some_and(|&b| is_kotlin_identifier_byte(b))
+    {
+        index -= 1;
+    }
+    index
 }
 
 fn is_kotlin_identifier_byte(b: u8) -> bool {
@@ -261,9 +375,7 @@ pub(super) fn patch_string_gaps(spans: &mut Vec<Span>, source: &str) {
 fn fill_string_gaps(spans: &mut Vec<Span>, source: &str, start: usize, end: usize) {
     let mut covered = spans
         .iter()
-        .filter_map(|&(s, e, kind)| {
-            (kind != TokenKind::Plain && s < end && e > start).then_some((s.max(start), e.min(end)))
-        })
+        .filter_map(|&(s, e, _)| (s < end && e > start).then_some((s.max(start), e.min(end))))
         .collect::<Vec<_>>();
     covered.sort_unstable();
 
@@ -318,6 +430,29 @@ fn is_string_interpolation_node(node: &tree_sitter::Node, kind: &str) -> bool {
             | "multi_line_str_ref"
     ) || ancestors_contain(node, "interpolated_expression", 16)
         || ancestors_contain(node, "interpolated_identifier", 16)
+}
+
+fn kind_contains(kind: &str, needle: &str) -> bool {
+    kind.contains(needle)
+}
+
+fn ancestors_kind_contains(node: &tree_sitter::Node, needle: &str, max_depth: usize) -> bool {
+    let mut cur = node.parent();
+    for _ in 0..max_depth {
+        match cur {
+            Some(n) if kind_contains(n.kind(), needle) => return true,
+            Some(n) => cur = n.parent(),
+            None => return false,
+        }
+    }
+    false
+}
+
+fn next_non_whitespace_byte_char(source: &[u8], from: usize) -> Option<char> {
+    std::str::from_utf8(source.get(from..)?)
+        .ok()?
+        .chars()
+        .find(|c| !c.is_whitespace())
 }
 
 fn is_first_identifier_child(parent: &tree_sitter::Node, node: &tree_sitter::Node) -> bool {
