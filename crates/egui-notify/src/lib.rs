@@ -54,13 +54,13 @@ pub struct Toasts {
 impl Toasts {
     /// Creates new [`Toasts`] instance.
     #[must_use]
-    pub fn new() -> Self {
+    pub const fn new() -> Self {
         Self {
             anchor: Anchor::TopRight,
-            margin: vec2(8., 8.),
-            toasts: vec![],
+            margin: Vec2::new(8., 8.),
+            toasts: Vec::new(),
             spacing: 8.,
-            padding: vec2(10., 10.),
+            padding: Vec2::new(10., 10.),
             held: false,
             speed: 4.,
             reverse: false,

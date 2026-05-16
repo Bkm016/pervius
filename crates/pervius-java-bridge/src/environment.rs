@@ -133,7 +133,7 @@ fn normalize_dir(path: Option<PathBuf>) -> Option<PathBuf> {
 }
 
 fn resolve_environment_dir(path: Option<PathBuf>, sub_dir: &str) -> Result<PathBuf, BridgeError> {
-    if let Some(path) = normalize_dir(path) {
+    if let Some(path) = path {
         return Ok(path);
     }
     Ok(default_environment_root()?.join(sub_dir))

@@ -368,7 +368,7 @@ pub(crate) fn code_view_editable_viewport(
         .filter(|&&b| b == b'\n')
         .count()
         + 1;
-    let window_text = &text[win_start_byte..win_end_byte];
+    let window_text = &text[win_start_byte..win_text_end.min(text.len())];
     let window_line_count = window_text
         .as_bytes()
         .iter()

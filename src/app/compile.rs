@@ -160,16 +160,6 @@ impl App {
         })
     }
 
-    fn compile_source_snapshot_is_current(&self, entry_path: &str, source_snapshot: &str) -> bool {
-        self.layout
-            .editor
-            .dock_state
-            .iter_all_tabs()
-            .find(|(_, tab)| tab.entry_path.as_deref() == Some(entry_path))
-            .map(|(_, tab)| tab.decompiled == source_snapshot)
-            .unwrap_or(true)
-    }
-
     /// 轮询 class 源码编译结果，成功后写回 JAR 并刷新反编译源码
     pub(crate) fn poll_class_compiles(&mut self) {
         if self.pending_compiles.is_empty() {
@@ -214,7 +204,15 @@ impl App {
         source_snapshot: &str,
         classes: Vec<CompiledClass>,
     ) {
-        if !self.compile_source_snapshot_is_current(entry_path, source_snapshot) {
+        let source_snapshot_is_current = self
+            .layout
+            .editor
+            .dock_state
+            .iter_all_tabs()
+            .find(|(_, tab)| tab.entry_path.as_deref() == Some(entry_path))
+            .map(|(_, tab)| tab.decompiled == source_snapshot)
+            .unwrap_or(true);
+        if !source_snapshot_is_current {
             log::warn!("Discarding stale compile result: {entry_path}");
             return;
         }

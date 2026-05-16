@@ -5,6 +5,7 @@
 use crate::appearance::theme;
 use egui_shell::components::panel::status_bar::{Alignment, ProgressItem};
 use pervius_java_bridge::environment::DownloadProgressSnapshot;
+use rust_i18n::t;
 
 egui_shell::define_progress_item! {
     /// 外部工具下载进度 item（左侧显示，下载期间可见）
@@ -23,15 +24,19 @@ impl DownloadProgressItem {
             Some(progress) => {
                 let downloaded = format_bytes(progress.downloaded);
                 let text = match progress.total {
-                    Some(total) if total > 0 => {
-                        format!(
-                            "Downloading {} ({}/{})",
-                            progress.file_name,
-                            downloaded,
-                            format_bytes(total)
-                        )
-                    }
-                    _ => format!("Downloading {} ({downloaded})", progress.file_name),
+                    Some(total) if total > 0 => t!(
+                        "status.downloading_known_total",
+                        name = progress.file_name.as_str(),
+                        downloaded = downloaded,
+                        total = format_bytes(total)
+                    )
+                    .to_string(),
+                    _ => t!(
+                        "status.downloading",
+                        name = progress.file_name.as_str(),
+                        downloaded = downloaded
+                    )
+                    .to_string(),
                 };
                 self.set_text(text);
                 self.set_visible(true);

@@ -29,7 +29,7 @@ Powered by Vineflower, with both batch JAR decompilation and on-demand single-cl
 
 ### Bytecode Editing
 
-Structured `.class` editor: the left pane navigates class info, fields, and methods; the right pane provides the matching editor. Access flags, inheritance, annotations, and descriptors are all editable, along with method instructions. On save, ClassForge (built on ASM 9.7) handles constant-pool rebuilding, StackMapTable recomputation, and `max_stack` / `max_locals`. Untouched methods are byte-copied; only modified methods trigger frame recomputation.
+Structured `.class` editor: the left pane navigates class info, fields, and methods; the right pane provides the matching editor. Access flags, inheritance, annotations, and descriptors are all editable, along with method instructions. On save, ClassForge (built on ASM 9.7.1) handles constant-pool rebuilding, StackMapTable recomputation, and `max_stack` / `max_locals`. Untouched methods are byte-copied; only modified methods trigger frame recomputation.
 
 <img src="screenshots/3.png" width="600" alt="Screenshot" />
 
@@ -53,7 +53,7 @@ Non-`.class` text files (XML, YAML, JSON, etc.) are editable directly with synta
 
 ### Code Navigation
 
-`Ctrl+Click` (macOS `Cmd+Click`) jumps to class, method, or field definitions. Supports import resolution, same-package inference, and wildcard matching. `Ctrl+Click` on a method declaration triggers Find Usages, searching all references automatically.
+`Ctrl+Click` (macOS `Cmd+Click`) jumps to class, method, or field definitions. Supports import resolution, same-package inference, wildcard matching, and Kotlin/JVM special names such as backtick-quoted or `$` methods. `Ctrl+Click` on a method declaration triggers Find Usages, searching all references automatically.
 
 ### Global Search
 
@@ -63,12 +63,13 @@ Non-`.class` text files (XML, YAML, JSON, etc.) are editable directly with synta
 
 ### Archive Browsing
 
-The left-hand resource tree lists JAR contents and supports `jar`, `zip`, `war`, and `ear`. Type to filter (Speed Search) with filtering computed on a background thread. Modified and decompilation states are reflected in real time. Files dropped onto the Explorer or Classpath area can be handled as normal opens or compile classpath additions, with hover feedback on the target area and a configurable drop policy in Settings. The Classpath panel is shown directly inside the explorer and its height can be resized by dragging the top edge. Recent files are also tracked.
+The left-hand resource tree lists JAR contents and supports `jar`, `zip`, `war`, and `ear`. Type to filter (Speed Search) with filtering computed on a background thread. Modified and decompilation states are reflected in real time. Dropping a file onto the window opens the first dropped archive or standalone file. The Classpath panel is shown directly inside the explorer, accepts archive/directory additions through its `+` action, and its height can be resized by dragging the top edge. Recent files are also tracked.
 
 <img src="screenshots/5.png" width="600" alt="Screenshot" />
 
 ### Export
 
+- **Save / overwrite source JAR** (`Ctrl+S`) — writes in-memory modified entries back to the currently opened archive when no editable source tab is pending
 - **Export JAR** (`Ctrl+Shift+S`) — writes modifications back and produces a new archive
 - **Export decompiled sources** (`Ctrl+Shift+E`) — exports `.java` / `.kt` to a directory, preserving the package layout
 
@@ -95,7 +96,7 @@ cd classforge
 ./gradlew jar    # Windows: .\gradlew.bat jar
 ```
 
-ClassForge declares Kotlin dependencies as `compileOnly`: Gradle / javac can type-check `KotlincCompiler`, but Kotlin stdlib/compiler are not packed into `classforge-*.jar`. Copy the resulting ClassForge JAR into `crates/pervius-java-bridge/libs/`, overwriting the file of the same name, then rebuild Rust. Runtime Kotlin recompilation will download the configured Kotlin dependencies automatically.
+ClassForge declares Kotlin dependencies as `compileOnly`: Gradle / javac can type-check `KotlincCompiler`, but Kotlin stdlib/compiler are not packed into `classforge-*.jar`. Copy the resulting `classforge-1.1.jar` into `crates/pervius-java-bridge/libs/`, replacing the bundled JAR if ClassForge sources change, then rebuild Rust. Keep the default Kotlin version in `classforge/build.gradle` and `crates/pervius-java-bridge/src/environment.rs` in sync; runtime Kotlin recompilation downloads the configured Kotlin dependencies automatically.
 
 ```bash
 cargo run --release
@@ -106,7 +107,7 @@ cargo run --release
 | Shortcut | Action |
 |:---------|:-------|
 | `Ctrl+O` | Open archive or single file |
-| `Ctrl+S` | Save / recompile unlocked source |
+| `Ctrl+S` | Save source edit / overwrite current JAR |
 | `Ctrl+F` | Find |
 | `Double Shift` | Global search |
 | `Ctrl+Click` | Go to definition / Find Usages |

@@ -41,7 +41,15 @@ public class ClassForge {
     public static void main(String[] args) throws Exception {
         for (String arg : args) {
             if ("--compile-kt".equals(arg)) {
-                runCompileKtEntrypoint(args);
+                try {
+                    byte[] output = pervius.compile.KotlincCompiler.run(args);
+                    System.out.write(output);
+                    System.out.flush();
+                } catch (Throwable e) {
+                    System.err.println("ClassForge error: " + e.getMessage());
+                    e.printStackTrace(System.err);
+                    System.exit(2);
+                }
                 return;
             }
             if ("--compile".equals(arg)) {
@@ -69,21 +77,6 @@ public class ClassForge {
             System.out.flush();
         } catch (Exception e) {
             System.err.println("ASM error: " + e.getMessage());
-            e.printStackTrace(System.err);
-            System.exit(2);
-        }
-    }
-
-    /**
-     * --compile-kt 入口：仅在 Kotlin 编译模式下触发 KotlincCompiler 类加载。
-     */
-    private static void runCompileKtEntrypoint(String[] args) throws Exception {
-        try {
-            byte[] output = pervius.compile.KotlincCompiler.run(args);
-            System.out.write(output);
-            System.out.flush();
-        } catch (Throwable e) {
-            System.err.println("ClassForge error: " + e.getMessage());
             e.printStackTrace(System.err);
             System.exit(2);
         }

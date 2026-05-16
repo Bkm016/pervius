@@ -29,7 +29,7 @@
 
 ### 字节码编辑
 
-结构化 `.class` 编辑面板：左侧导航类信息、字段、方法，右侧对应编辑区。可修改访问标志、继承关系、注解、描述符，方法指令也可直接编辑。保存时 ClassForge（基于 ASM 9.7）自动处理常量池重建、StackMapTable 重算和 max_stack/max_locals。未修改方法直接字节拷贝，仅对改动方法触发帧重算。
+结构化 `.class` 编辑面板：左侧导航类信息、字段、方法，右侧对应编辑区。可修改访问标志、继承关系、注解、描述符，方法指令也可直接编辑。保存时 ClassForge（基于 ASM 9.7.1）自动处理常量池重建、StackMapTable 重算和 max_stack/max_locals。未修改方法直接字节拷贝，仅对改动方法触发帧重算。
 
 <img src="screenshots/3.png" width="600" alt="截图" />
 
@@ -53,7 +53,7 @@
 
 ### 代码导航
 
-`Ctrl+Click`（macOS `Cmd+Click`）跳转到类、方法、字段的定义。支持 import 解析、同包推断和通配符匹配。在方法声明处 `Ctrl+Click` 触发 Find Usages，自动搜索所有引用。
+`Ctrl+Click`（macOS `Cmd+Click`）跳转到类、方法、字段的定义。支持 import 解析、同包推断、通配符匹配，以及 Kotlin/JVM 的反引号或 `$` 特殊方法名。在方法声明处 `Ctrl+Click` 触发 Find Usages，自动搜索所有引用。
 
 ### 全局搜索
 
@@ -63,12 +63,13 @@
 
 ### 归档浏览
 
-左侧资源树展示 JAR 内容，支持 `jar` `zip` `war` `ear`。键入即过滤（Speed Search），过滤计算在后台线程完成。修改状态实时标记，反编译状态实时可见。文件拖到 Explorer 或 Classpath 区域时，可按普通打开或添加到编译 Classpath 处理，目标区域会有悬停反馈，且拖拽行为可在设置中配置。Classpath 面板直接集成在资源树下方，并支持通过拖拽上边界调整高度。最近文件列表也会同步维护。
+左侧资源树展示 JAR 内容，支持 `jar` `zip` `war` `ear`。键入即过滤（Speed Search），过滤计算在后台线程完成。修改状态实时标记，反编译状态实时可见。将文件拖到窗口会打开第一个拖入的归档或独立文件。Classpath 面板直接集成在资源树下方，可通过 `+` 添加归档/目录，并支持拖拽上边界调整高度。最近文件列表也会同步维护。
 
 <img src="screenshots/5.png" width="600" alt="截图" />
 
 ### 导出
 
+- **保存 / 覆盖源 JAR**（`Ctrl+S`）— 在没有待保存源码标签页时，将内存中的已修改条目写回当前打开的归档
 - **导出 JAR**（`Ctrl+Shift+S`）— 修改写回 JAR，生成新归档
 - **导出反编译源码**（`Ctrl+Shift+E`）— 导出 `.java`/`.kt` 到指定目录，保留包结构
 
@@ -95,7 +96,7 @@ cd classforge
 ./gradlew jar    # Windows: .\gradlew.bat jar
 ```
 
-ClassForge 以 `compileOnly` 方式声明 Kotlin 依赖：Gradle / javac 可以对 `KotlincCompiler` 做类型检查，但 Kotlin stdlib/compiler 不会打进 `classforge-*.jar`。将产出的 ClassForge JAR 复制到 `crates/pervius-java-bridge/libs/` 替换同名文件，重新编译 Rust 即可。运行时 Kotlin 重编译会自动下载已配置版本的 Kotlin 依赖。
+ClassForge 以 `compileOnly` 方式声明 Kotlin 依赖：Gradle / javac 可以对 `KotlincCompiler` 做类型检查，但 Kotlin stdlib/compiler 不会打进 `classforge-*.jar`。修改 ClassForge 源码后，将产出的 `classforge-1.1.jar` 复制到 `crates/pervius-java-bridge/libs/` 替换内置 JAR，再重新编译 Rust。默认 Kotlin 版本需同步维护 `classforge/build.gradle` 与 `crates/pervius-java-bridge/src/environment.rs`；运行时 Kotlin 重编译会自动下载已配置版本的 Kotlin 依赖。
 
 ```bash
 cargo run --release
@@ -106,7 +107,7 @@ cargo run --release
 | 快捷键 | 操作 |
 |:-------|:-----|
 | `Ctrl+O` | 打开归档或单文件 |
-| `Ctrl+S` | 保存 / 重编译已解锁源码 |
+| `Ctrl+S` | 保存源码编辑 / 覆盖当前 JAR |
 | `Ctrl+F` | 查找 |
 | `Double Shift` | 全局搜索 |
 | `Ctrl+Click` | 跳转到定义 / Find Usages |

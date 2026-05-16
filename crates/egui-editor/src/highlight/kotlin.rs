@@ -464,7 +464,11 @@ fn patch_special_method_name_spans(spans: &mut Vec<Span>, source: &str) {
     let mut i = 0usize;
     while i < bytes.len() {
         if bytes[i] == b'`' {
-            let Some(end_tick) = find_next_byte(bytes, i + 1, b'`') else {
+            let Some(end_tick) = bytes[i + 1..]
+                .iter()
+                .position(|&b| b == b'`')
+                .map(|offset| i + 1 + offset)
+            else {
                 break;
             };
             let name_start = i + 1;
@@ -514,16 +518,6 @@ fn patch_special_method_name_spans(spans: &mut Vec<Span>, source: &str) {
             })
     });
     spans.extend(special_spans);
-}
-
-fn find_next_byte(bytes: &[u8], mut from: usize, needle: u8) -> Option<usize> {
-    while from < bytes.len() {
-        if bytes[from] == needle {
-            return Some(from);
-        }
-        from += 1;
-    }
-    None
 }
 
 fn is_special_method_name_start(b: u8) -> bool {

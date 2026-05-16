@@ -181,7 +181,11 @@ pub fn compile_kotlin_sources_with_options(
     }
     let mut child = cmd.spawn_with_stdin().map_err(BridgeError::SpawnFailed)?;
     if let Some(mut stdin) = child.stdin.take() {
-        write_kotlin_sources_protocol(&mut stdin, sources)?;
+        stdin.write_all(&(sources.len() as u32).to_be_bytes())?;
+        for source in sources {
+            write_prefixed_string(&mut stdin, &source.path)?;
+            write_prefixed_string_u32(&mut stdin, &source.source)?;
+        }
     }
     wait_compile_output(child)
 }
@@ -228,18 +232,6 @@ fn parse_compile_output(stdout: &[u8]) -> Result<CompileOutcome, BridgeError> {
             "unexpected compiler status byte {other}"
         ))),
     }
-}
-
-fn write_kotlin_sources_protocol(
-    w: &mut dyn Write,
-    sources: &[KotlinSource],
-) -> Result<(), BridgeError> {
-    w.write_all(&(sources.len() as u32).to_be_bytes())?;
-    for source in sources {
-        write_prefixed_string(w, &source.path)?;
-        write_prefixed_string_u32(w, &source.source)?;
-    }
-    Ok(())
 }
 
 fn write_prefixed_string(w: &mut dyn Write, s: &str) -> Result<(), BridgeError> {

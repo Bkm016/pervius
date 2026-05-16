@@ -205,13 +205,17 @@ impl App {
             process::set_java_home(&new_settings.java.java_home);
         }
         let cache_changed = new_settings.cache.decompiled_dir != self.settings.cache.decompiled_dir;
-        let vineflower_changed = self.vineflower_settings_changed(&new_settings);
-        let environment_changed = vineflower_changed || self.kotlin_settings_changed(&new_settings);
+        let vineflower_changed = new_settings.java.vineflower_version != self.settings.java.vineflower_version
+            || new_settings.java.vineflower_dir != self.settings.java.vineflower_dir;
+        let kotlin_settings_changed = new_settings.java.kotlin_version != self.settings.java.kotlin_version
+            || new_settings.java.kotlin_dependencies_dir
+                != self.settings.java.kotlin_dependencies_dir;
+        let environment_changed = vineflower_changed || kotlin_settings_changed;
         let kotlin_decompiler_changed =
             new_settings.compile.kotlin_decompiler != self.settings.compile.kotlin_decompiler;
         let refresh_cache_settings = cache_changed || kotlin_decompiler_changed;
-        let should_prepare_vineflower =
-            self.should_prepare_vineflower(&new_settings, cache_changed, vineflower_changed);
+        let should_prepare_vineflower = vineflower_changed
+            || (cache_changed && new_settings.java.vineflower_dir.trim().is_empty());
         if cache_changed {
             decompiler::set_cache_root(new_settings.cache.root_path());
         }
@@ -235,29 +239,6 @@ impl App {
         if should_prepare_vineflower {
             self.start_vineflower_prepare();
         }
-    }
-
-    fn vineflower_settings_changed(&self, new_settings: &Settings) -> bool {
-        new_settings.java.vineflower_version != self.settings.java.vineflower_version
-            || new_settings.java.vineflower_dir != self.settings.java.vineflower_dir
-    }
-
-    fn kotlin_settings_changed(&self, new_settings: &Settings) -> bool {
-        new_settings.java.kotlin_version != self.settings.java.kotlin_version
-            || new_settings.java.kotlin_dependencies_dir
-                != self.settings.java.kotlin_dependencies_dir
-    }
-
-    fn should_prepare_vineflower(
-        &self,
-        new_settings: &Settings,
-        cache_changed: bool,
-        vineflower_changed: bool,
-    ) -> bool {
-        if vineflower_changed {
-            return true;
-        }
-        cache_changed && new_settings.java.vineflower_dir.trim().is_empty()
     }
 
     fn apply_kotlin_decompiler_settings(&mut self, new_settings: &Settings) {

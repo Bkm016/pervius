@@ -1,8 +1,6 @@
 //! ClassForge 集成：调用 ASM 处理字节码修改、StackMapTable 生成、max 值计算
 //!
-//! 两种模式：
-//! - `patch_methods`: 发送 class 字节 + 方法编辑列表，ASM 替换字节码并重算帧
-//! - `recompute_frames`: 仅重算 StackMapTable / max_stack / max_locals
+//! 通过 `patch_methods` 发送 class 字节 + 方法编辑列表，由 ASM 替换字节码并重算帧
 //!
 //! @author sky
 
@@ -92,40 +90,6 @@ pub fn patch_methods(
         class_bytes.len(),
         output.stdout.len(),
         edits.len()
-    );
-    Ok(output.stdout)
-}
-
-/// 调用 classforge 默认模式：仅重算 StackMapTable / max_stack / max_locals。
-pub fn recompute_frames(
-    class_bytes: &[u8],
-    jar_path: Option<&Path>,
-) -> Result<Vec<u8>, BridgeError> {
-    let classforge = crate::find_jar(
-        "classforge",
-        |_| true,
-        Some((crate::BUNDLED_CLASSFORGE, crate::BUNDLED_CLASSFORGE_NAME)),
-    )?;
-    let mut cmd = process::JavaCommand::new(&classforge)?;
-    if let Some(path) = jar_path {
-        cmd.arg("--classpath").arg(path);
-    }
-    let mut child = cmd.spawn_with_stdin().map_err(BridgeError::SpawnFailed)?;
-    if let Some(mut stdin) = child.stdin.take() {
-        stdin.write_all(class_bytes)?;
-    }
-    let output = child.wait_with_output()?;
-    if !output.status.success() {
-        let stderr = String::from_utf8_lossy(&output.stderr);
-        return Err(BridgeError::ClassForge(stderr.into_owned()));
-    }
-    if output.stdout.is_empty() {
-        return Err(BridgeError::ClassForge("produced no output".to_string()));
-    }
-    log::debug!(
-        "classforge reframe: {} -> {} bytes",
-        class_bytes.len(),
-        output.stdout.len()
     );
     Ok(output.stdout)
 }

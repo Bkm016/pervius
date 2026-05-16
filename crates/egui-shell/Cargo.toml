@@ -1,8 +1,8 @@
 [package]
 name = "egui-shell"
-version = "0.1.0"
+version = "0.2.0"
 edition = "2024"
-description = "Custom-titlebar window shell for eframe (decorations=false)"
+description = "Cross-platform window shell and reusable egui components"
 license = "MIT"
 
 [dependencies]

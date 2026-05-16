@@ -164,7 +164,7 @@ settings.browse: "浏览"
 settings.press_key: "请按一个键..."
 
 # 状态栏
-status.version: "Pervius v0.1.0"
+status.version: "Pervius v0.2.0"
 status.decompiled: "反编译"
 status.bytecode: "字节码"
 status.hex: "Hex"
@@ -176,6 +176,8 @@ status.modified: "● %{count} 已修改"
 status.changed: "● %{count} 未保存"
 status.exporting_progress: "正在导出 JAR（%{current}/%{total}）"
 status.indexing_progress: "正在构建搜索索引（%{current}/%{total}）"
+status.downloading: "正在下载 %{name}（%{downloaded}）"
+status.downloading_known_total: "正在下载 %{name}（%{downloaded}/%{total}）"
 
 # 布局 / 加载
 layout.decompile_complete: "反编译完成：%{name}"

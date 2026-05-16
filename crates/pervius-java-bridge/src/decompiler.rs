@@ -67,10 +67,6 @@ pub enum DecompiledSourceLanguage {
 }
 
 impl DecompiledSourceLanguage {
-    pub fn is_kotlin(self) -> bool {
-        matches!(self, Self::Kotlin)
-    }
-
     fn from_extension(ext: &str) -> Option<Self> {
         match ext {
             ".java" => Some(Self::Java),

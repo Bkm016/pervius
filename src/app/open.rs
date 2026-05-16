@@ -75,7 +75,11 @@ impl App {
         }
         ctx.data_mut(|d| d.insert_temp(cache_id, frame));
         if let Some(path) = dropped.into_iter().find_map(|file| file.path) {
-            self.open_dropped_path(&path);
+            if is_jar_file(&path) {
+                self.request_open_jar(&path);
+            } else {
+                self.open_standalone_file(&path);
+            }
         }
     }
 
@@ -121,15 +125,6 @@ impl App {
         self.settings.remove_recent(path);
         if let Err(e) = self.settings.save() {
             log::warn!("保存最近打开记录失败: {e}");
-        }
-    }
-
-    /// 按拖拽默认行为打开第一个路径。
-    pub(crate) fn open_dropped_path(&mut self, path: &Path) {
-        if is_jar_file(path) {
-            self.request_open_jar(path);
-        } else {
-            self.open_standalone_file(path);
         }
     }
 

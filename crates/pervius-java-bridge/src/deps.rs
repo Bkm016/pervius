@@ -134,10 +134,6 @@ pub(crate) fn ensure_kotlin_dependencies_in_dir(
     })
 }
 
-fn fetch_pom_dependencies(dir: &Path, artifact: MavenJar<'_>) -> Result<Vec<PomDependency>, BridgeError> {
-    parse_pom_dependencies(&load_cached_text_file(dir, &artifact.pom_file_name(), &artifact.pom_url())?)
-}
-
 fn collect_dependency_closure(
     dir: &Path,
     artifact: MavenJar<'_>,
@@ -146,7 +142,11 @@ fn collect_dependency_closure(
     out: &mut Vec<PathBuf>,
     stdlib: &mut Option<PathBuf>,
 ) -> Result<(), BridgeError> {
-    for dependency in fetch_pom_dependencies(dir, artifact)? {
+    for dependency in parse_pom_dependencies(&load_cached_text_file(
+        dir,
+        &artifact.pom_file_name(),
+        &artifact.pom_url(),
+    )?)? {
         if dependency.optional || !dependency_scope_matches(dependency.scope.as_deref(), runtime_only) {
             continue;
         }

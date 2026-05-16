@@ -1,8 +1,8 @@
 # egui-shell
 
-基于 [egui](https://github.com/emilk/egui) 的自定义无框窗口壳子，附带一套可复用 UI 组件。
+基于 [egui](https://github.com/emilk/egui) 的跨平台窗口壳子，附带一套可复用 UI 组件。
 
-封装 `decorations=false` 无框窗口 + 自绘标题栏（拖拽/最小化/最大化/关闭）+ 跨平台边缘 resize + Windows DWM 圆角。业务层只需实现 `AppContent` trait。
+Windows/Linux 使用 `decorations=false` 无框窗口 + 自绘标题栏（拖拽/最小化/最大化/关闭）+ 跨平台边缘 resize + Windows DWM 圆角；macOS 保留原生 traffic light 并适配标题栏留白。业务层只需实现 `AppContent` trait。
 
 ## 快速启动
 

@@ -164,7 +164,7 @@ settings.browse: "Browse"
 settings.press_key: "Press a key..."
 
 # Status bar
-status.version: "Pervius v0.1.0"
+status.version: "Pervius v0.2.0"
 status.decompiled: "Decompiled"
 status.bytecode: "Bytecode"
 status.hex: "Hex"
@@ -176,6 +176,8 @@ status.modified: "● %{count} Modified"
 status.changed: "● %{count} Changed"
 status.exporting_progress: "Exporting JAR (%{current}/%{total})"
 status.indexing_progress: "Building search index (%{current}/%{total})"
+status.downloading: "Downloading %{name} (%{downloaded})"
+status.downloading_known_total: "Downloading %{name} (%{downloaded}/%{total})"
 
 # Layout / loading
 layout.decompile_complete: "Decompilation complete: %{name}"

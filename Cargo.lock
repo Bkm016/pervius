@@ -1081,14 +1081,14 @@ dependencies = [
 
 [[package]]
 name = "egui-animation"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "egui",
 ]
 
 [[package]]
 name = "egui-editor"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "eframe",
  "egui-shell",
@@ -1106,7 +1106,7 @@ dependencies = [
 
 [[package]]
 name = "egui-hex-view"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "eframe",
  "tabookit",
@@ -1114,7 +1114,7 @@ dependencies = [
 
 [[package]]
 name = "egui-keybind"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "egui",
  "serde",
@@ -1122,14 +1122,14 @@ dependencies = [
 
 [[package]]
 name = "egui-notify"
-version = "0.22.0"
+version = "0.2.0"
 dependencies = [
  "egui",
 ]
 
 [[package]]
 name = "egui-shell"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "dirs",
  "eframe",
@@ -2817,7 +2817,7 @@ checksum = "9b4f627cb1b25917193a259e49bdad08f671f8d9708acfd5fe0a8c1455d87220"
 
 [[package]]
 name = "pervius"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "chardetng",
  "dirs",
@@ -2848,7 +2848,7 @@ dependencies = [
 
 [[package]]
 name = "pervius-java-bridge"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "dirs",
  "log",
@@ -3824,7 +3824,7 @@ dependencies = [
 
 [[package]]
 name = "tabookit"
-version = "0.1.0"
+version = "0.2.0"
 
 [[package]]
 name = "tempfile"
