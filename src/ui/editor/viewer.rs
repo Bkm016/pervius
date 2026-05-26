@@ -36,6 +36,8 @@ pub enum TabAction {
     CloseOthers(Option<String>),
     /// 关闭指定 tab 右侧的所有 tab
     CloseToRight(Option<String>),
+    /// 立即重新编译源码编辑 tab
+    RecompileSource(Option<String>),
 }
 
 pub struct EditorTabViewer<'a> {
@@ -78,6 +80,18 @@ impl TabViewer for EditorTabViewer<'_> {
                 ..Default::default()
             },
         );
+        if tab.is_class && tab.is_source_unlocked() {
+            job.append(" ", 0.0, egui::TextFormat::default());
+            job.append(
+                codicon::EDIT,
+                0.0,
+                egui::TextFormat {
+                    font_id: egui::FontId::new(11.0, codicon::family()),
+                    color: theme::ACCENT_CYAN,
+                    ..Default::default()
+                },
+            );
+        }
         job.append("", 4.0, egui::TextFormat::default());
         job.into()
     }
@@ -128,18 +142,23 @@ impl TabViewer for EditorTabViewer<'_> {
         }
         // 渲染内容
         match tab.active_view {
-            ActiveView::Decompiled if tab.is_text => {
-                render::render_editable(ui, tab, &matches, current)
+            ActiveView::Decompiled if tab.is_text || (tab.is_class && tab.is_source_unlocked()) => {
+                if render::render_editable(ui, tab, &matches, current) {
+                    self.action = Some(TabAction::RecompileSource(tab.entry_path.clone()));
+                }
             }
             ActiveView::Decompiled => {
-                if let Some(hit) =
-                    render::render_decompiled(ui, tab, &matches, current, self.known_classes)
-                {
+                let (hit, recompile) =
+                    render::render_decompiled(ui, tab, &matches, current, self.known_classes);
+                if let Some(hit) = hit {
                     self.pending_navigate = Some(PendingNavigate {
                         hit,
                         source_entry: tab.entry_path.clone(),
                         source_text: tab.decompiled.clone(),
                     });
+                }
+                if recompile {
+                    self.action = Some(TabAction::RecompileSource(tab.entry_path.clone()));
                 }
             }
             ActiveView::Bytecode => bytecode::render_bytecode_panel(ui, tab, &matches, current),
@@ -190,7 +209,7 @@ impl TabViewer for EditorTabViewer<'_> {
     }
 
     fn on_close(&mut self, tab: &mut Self::Tab) -> OnCloseResponse {
-        if tab.is_modified {
+        if tab.is_modified || tab.source_modified {
             self.pending_close = Some(tab.entry_path.clone());
             return OnCloseResponse::Focus;
         }
@@ -202,7 +221,7 @@ impl TabViewer for EditorTabViewer<'_> {
     }
 
     fn modification_color(&self, tab: &Self::Tab) -> Option<egui::Color32> {
-        if tab.is_modified {
+        if tab.is_modified || tab.source_modified {
             return Some(theme::ACCENT_ORANGE);
         }
         if let Some(path) = &tab.entry_path {

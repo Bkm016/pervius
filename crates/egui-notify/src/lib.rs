@@ -17,6 +17,7 @@ use egui::{
 
 pub(crate) const TOAST_WIDTH: f32 = 180.;
 pub(crate) const TOAST_HEIGHT: f32 = 34.;
+const MAX_TOAST_WIDTH: f32 = 420.;
 
 const ERROR_COLOR: Color32 = Color32::from_rgb(200, 90, 90);
 const INFO_COLOR: Color32 = Color32::from_rgb(150, 200, 210);
@@ -56,10 +57,10 @@ impl Toasts {
     pub const fn new() -> Self {
         Self {
             anchor: Anchor::TopRight,
-            margin: vec2(8., 8.),
-            toasts: vec![],
+            margin: Vec2::new(8., 8.),
+            toasts: Vec::new(),
             spacing: 8.,
-            padding: vec2(10., 10.),
+            padding: Vec2::new(10., 10.),
             held: false,
             speed: 4.,
             reverse: false,
@@ -241,19 +242,50 @@ impl Toasts {
                 }
             }
 
-            let caption_galley = toast.caption.clone().into_galley_impl(
+            let style = ctx.global_style();
+            let fallback_font = self
+                .font
+                .clone()
+                .map_or(FontSelection::Default, FontSelection::FontId);
+            let unwrapped_caption_galley = toast.caption.clone().into_galley_impl(
                 ctx,
-                ctx.global_style().as_ref(),
+                style.as_ref(),
                 TextWrapping::from_wrap_mode_and_width(TextWrapMode::Extend, f32::INFINITY),
-                FontSelection::Default,
+                fallback_font.clone(),
                 Align::LEFT,
             );
 
+            let icon_width = unwrapped_caption_galley.rect.height()
+                / unwrapped_caption_galley.rows.len().max(1) as f32;
+            let icon_width_padded_estimate = if toast.level == ToastLevel::None {
+                0.
+            } else {
+                icon_width + padding.x
+            };
+            let cross_width_padded_estimate = if toast.closable {
+                icon_width + padding.x
+            } else {
+                0.
+            };
+            let max_caption_width = (MAX_TOAST_WIDTH
+                - padding.x * 2.
+                - icon_width_padded_estimate
+                - cross_width_padded_estimate)
+                .max(48.);
+            let caption_galley = if unwrapped_caption_galley.rect.width() > max_caption_width {
+                toast.caption.clone().into_galley_impl(
+                    ctx,
+                    style.as_ref(),
+                    TextWrapping::from_wrap_mode_and_width(TextWrapMode::Wrap, max_caption_width),
+                    fallback_font,
+                    Align::LEFT,
+                )
+            } else {
+                unwrapped_caption_galley
+            };
+
             let (caption_width, caption_height) =
                 (caption_galley.rect.width(), caption_galley.rect.height());
-
-            let line_count = caption_galley.rows.len().max(1);
-            let icon_width = caption_height / line_count as f32;
             let rounding = CornerRadius::same(4);
 
             // Create toast icon
@@ -410,7 +442,7 @@ impl Toasts {
 
             toast.adjust_next_pos(&mut pos, *anchor, *spacing);
 
-            // 右键复制 toast 文本
+            // 右键复制 toast 文本（不再显示额外提示）
             if let Some(hp) = ctx.input(|i| i.pointer.hover_pos()) {
                 if rect.contains(hp) {
                     ctx.set_cursor_icon(egui::CursorIcon::ContextMenu);

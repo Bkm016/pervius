@@ -1,8 +1,6 @@
 //! ClassForge 集成：调用 ASM 处理字节码修改、StackMapTable 生成、max 值计算
 //!
-//! 两种模式：
-//! - `patch_methods`: 发送 class 字节 + 方法编辑列表，ASM 替换字节码并重算帧
-//! - `recompute_frames`: 仅重算 StackMapTable / max_stack / max_locals
+//! 通过 `patch_methods` 发送 class 字节 + 方法编辑列表，由 ASM 替换字节码并重算帧
 //!
 //! @author sky
 

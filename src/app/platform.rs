@@ -7,6 +7,15 @@ use pervius_java_bridge::decompiler;
 use std::path::Path;
 
 impl App {
+    /// 在文件管理器中显示一个真实存在的文件系统路径。
+    pub(crate) fn reveal_filesystem_path(&self, path: &Path) {
+        if path.is_dir() {
+            open_directory(path);
+        } else {
+            reveal_in_explorer(path);
+        }
+    }
+
     /// 处理 explorer 中右键「Reveal in Explorer」
     pub(crate) fn handle_pending_reveal(&mut self) {
         let Some(entry_path) = self.layout.file_panel.pending_reveal.take() else {
@@ -20,7 +29,7 @@ impl App {
         if entry_path.ends_with(".class") || entry_path.contains('$') {
             if let Some(file) = decompiler::cached_source_path(&jar.hash, &entry_path) {
                 log::info!("Reveal: found {}", file.display());
-                reveal_in_explorer(&file);
+                self.reveal_filesystem_path(&file);
                 return;
             }
             log::warn!("Reveal: cached source not found for {entry_path}");
@@ -29,7 +38,7 @@ impl App {
         if let Ok(dir) = decompiler::cache_dir(&jar.hash) {
             if dir.exists() {
                 log::info!("Reveal: fallback to dir {}", dir.display());
-                open_directory(&dir);
+                self.reveal_filesystem_path(&dir);
             }
         }
     }

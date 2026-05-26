@@ -127,7 +127,7 @@ fn is_word_boundary(text: &str, start: usize, end: usize) -> bool {
         text[..start]
             .chars()
             .next_back()
-            .map_or(true, |c| !c.is_alphanumeric() && c != '_')
+            .map_or(true, |c| !is_word_char(c))
     };
     let after = if end >= text.len() {
         true
@@ -135,7 +135,11 @@ fn is_word_boundary(text: &str, start: usize, end: usize) -> bool {
         text[end..]
             .chars()
             .next()
-            .map_or(true, |c| !c.is_alphanumeric() && c != '_')
+            .map_or(true, |c| !is_word_char(c))
     };
     before && after
+}
+
+fn is_word_char(c: char) -> bool {
+    c.is_alphanumeric() || c == '_' || c == '$'
 }

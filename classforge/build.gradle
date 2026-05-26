@@ -3,11 +3,15 @@ plugins {
 }
 
 group = 'pervius'
-version = '1.0'
+version = '1.1'
 
 java {
     sourceCompatibility = JavaVersion.VERSION_1_8
     targetCompatibility = JavaVersion.VERSION_1_8
+}
+
+tasks.withType(JavaCompile).configureEach {
+    options.encoding = 'UTF-8'
 }
 
 repositories {
@@ -18,12 +22,18 @@ dependencies {
     implementation 'org.ow2.asm:asm:9.7.1'
     implementation 'org.ow2.asm:asm-tree:9.7.1'
     implementation 'org.ow2.asm:asm-analysis:9.7.1'
+    compileOnly 'org.jetbrains.kotlin:kotlin-stdlib:2.3.0'
+    compileOnly 'org.jetbrains.kotlin:kotlin-compiler-embeddable:2.3.0'
 }
 
 jar {
     archiveFileName = "classforge-${version}.jar"
     manifest {
-        attributes 'Main-Class': 'pervius.asm.ClassForge'
+        attributes(
+                'Main-Class': 'pervius.asm.ClassForge',
+                'Implementation-Title': 'ClassForge',
+                'Implementation-Version': project.version
+        )
     }
     from {
         configurations.runtimeClasspath.collect { it.isDirectory() ? it : zipTree(it) }

@@ -76,6 +76,15 @@ pub fn render(ui: &mut egui::Ui, app: &mut App) {
     if menu_item_if(
         ui,
         mt,
+        &t!("menu.save_overwrite_source"),
+        None,
+        state.has_jar && state.is_idle && state.has_jar_changes,
+    ) {
+        app.save_jar_overwrite_source();
+    }
+    if menu_item_if(
+        ui,
+        mt,
         &t!("menu.export_decompiled"),
         Some(&app.settings.keymap.export_decompiled),
         state.has_jar && state.is_decompiled && state.is_idle,

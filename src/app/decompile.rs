@@ -3,13 +3,31 @@
 //! @author sky
 
 use super::workspace::{DecompilePhase, Workspace};
-use super::App;
+use super::{editor_source_language, App};
 use crate::task::{Poll, Pollable, Task};
 use crate::ui::editor::view_toggle::ActiveView;
-use egui_editor::highlight::Language;
 use pervius_java_bridge::decompiler;
 use rust_i18n::t;
 use std::collections::HashSet;
+use std::path::Path;
+
+pub(super) fn spawn_decompile_start_task(
+    jar_path: &Path,
+    jar_name: &str,
+    hash: &str,
+    class_count: u32,
+) -> (
+    String,
+    Task<Result<pervius_java_bridge::decompiler::DecompileTask, pervius_java_bridge::error::BridgeError>>,
+) {
+    let path = jar_path.to_path_buf();
+    let name = jar_name.to_string();
+    let hash = hash.to_string();
+    let thread_name = name.clone();
+    let task = Task::spawn(move || decompiler::start(&path, &thread_name, &hash, class_count));
+    log::info!("Preparing decompilation: {name} ({class_count} classes)");
+    (name, task)
+}
 
 impl App {
     /// 轮询 JAR 全量反编译结果
@@ -70,29 +88,15 @@ impl App {
         if !matches!(loaded.decompile, DecompilePhase::Pending) {
             return;
         }
-        match decompiler::start(
+        if loaded.pending_re_decompile.is_some() {
+            return;
+        }
+        loaded.pending_re_decompile = Some(spawn_decompile_start_task(
             &loaded.jar.path,
             &loaded.jar.name,
             &loaded.jar.hash,
             loaded.jar.class_count(),
-        ) {
-            Ok(task) => {
-                log::info!(
-                    "Starting decompilation: {} ({} classes)",
-                    loaded.jar.name,
-                    loaded.jar.class_count()
-                );
-                loaded.decompile = DecompilePhase::Running {
-                    task,
-                    completed: HashSet::new(),
-                };
-            }
-            Err(e) => {
-                log::warn!("Cannot start decompiler: {e}");
-                self.toasts
-                    .warning(t!("layout.decompiler_unavailable", error = e));
-            }
-        }
+        ));
     }
 
     /// 清除缓存并重新反编译整个 JAR
@@ -197,11 +201,7 @@ impl App {
             let entry_path = self.pending_decompiles.swap_remove(i).0;
             match result {
                 Ok(cached) => {
-                    let lang = if cached.is_kotlin {
-                        Language::Kotlin
-                    } else {
-                        Language::Java
-                    };
+                    let lang = editor_source_language(cached.language);
                     for (_, tab) in self.layout.editor.dock_state.iter_all_tabs_mut() {
                         if tab.entry_path.as_deref() == Some(&entry_path) {
                             tab.set_decompiled(

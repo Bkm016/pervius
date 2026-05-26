@@ -9,6 +9,8 @@ use crate::appearance::theme;
 use eframe::egui;
 use egui_editor::code_view::NavigationHit;
 use egui_editor::search::FindMatch;
+use egui_shell::components::menu_item;
+use rust_i18n::t;
 use std::collections::HashSet;
 
 pub use egui_editor::code_view::line_number_width;
@@ -28,9 +30,9 @@ pub fn render_decompiled(
     matches: &[FindMatch],
     current: Option<usize>,
     known_classes: &HashSet<String>,
-) -> Option<NavigationHit> {
+) -> (Option<NavigationHit>, bool) {
     let t = theme::editor_theme();
-    egui_editor::code_view::code_view(
+    let output = egui_editor::code_view::code_view(
         ui,
         egui::Id::new(&tab.entry_path).with("decompiled"),
         &tab.decompiled,
@@ -42,7 +44,11 @@ pub fn render_decompiled(
         &mut tab.layout_cache,
         &mut tab.pending_scroll_to_line,
         Some(known_classes),
-    )
+    );
+    let recompile = show_source_context_menu(output.response.as_ref(), tab);
+    paint_source_edit_indicator(ui, tab);
+    paint_compile_diagnostics(ui, tab);
+    (output.value, recompile)
 }
 
 /// 可编辑文本视图
@@ -53,9 +59,9 @@ pub fn render_editable(
     tab: &mut EditorTab,
     matches: &[FindMatch],
     current: Option<usize>,
-) {
+) -> bool {
     let t = theme::editor_theme();
-    let changed = egui_editor::code_view::code_view_editable(
+    let output = egui_editor::code_view::code_view_editable(
         ui,
         egui::Id::new(&tab.entry_path).with("editable"),
         &mut tab.decompiled,
@@ -67,9 +73,104 @@ pub fn render_editable(
         tab.viewport_override,
         &mut tab.pending_scroll_to_line,
     );
-    if changed {
+    if output.value {
         tab.refresh_decompiled_data();
-        tab.is_modified = true;
+        if tab.is_class && tab.is_source_unlocked() {
+            tab.source_modified = true;
+            tab.compile_diagnostics.clear();
+        } else {
+            tab.is_modified = true;
+        }
+    }
+    let recompile = show_source_context_menu(output.response.as_ref(), tab);
+    paint_source_edit_indicator(ui, tab);
+    paint_compile_diagnostics(ui, tab);
+    recompile
+}
+
+fn show_source_context_menu(response: Option<&egui::Response>, tab: &mut EditorTab) -> bool {
+    if !tab.is_class {
+        return false;
+    }
+    let Some(response) = response else {
+        return false;
+    };
+    let mut recompile = false;
+    response.context_menu(|ui| {
+        let mt = &theme::menu_theme();
+        if tab.is_class && !tab.is_source_unlocked() {
+            let jdk_available = pervius_java_bridge::compiler::is_jdk_available();
+            if jdk_available && !tab.is_modified {
+                if menu_item(ui, mt, &t!("editor.allow_edit"), None) {
+                    tab.unlock_source_edit();
+                    ui.close();
+                }
+            } else {
+                let label = if tab.is_modified {
+                    t!("editor.source_vs_struct_conflict").to_string()
+                } else {
+                    t!("editor.jdk_required").to_string()
+                };
+                ui.add_enabled(false, egui::Button::new(label));
+            }
+        }
+        if tab.is_class && tab.is_source_unlocked() {
+            if menu_item(ui, mt, &t!("editor.lock_edit"), None) {
+                tab.lock_source_edit();
+                ui.close();
+            }
+            if tab.source_modified && menu_item(ui, mt, &t!("editor.discard_source"), None) {
+                tab.discard_source_changes();
+                ui.close();
+            }
+            if menu_item(ui, mt, &t!("editor.recompile_now"), None) {
+                recompile = true;
+                ui.close();
+            }
+        }
+    });
+    recompile
+}
+
+fn paint_source_edit_indicator(ui: &egui::Ui, tab: &EditorTab) {
+    if !(tab.is_class && tab.is_source_unlocked()) {
+        return;
+    }
+    let rect = ui.clip_rect();
+    let x = rect.left() + 2.0;
+    ui.painter().vline(
+        x,
+        rect.y_range(),
+        egui::Stroke::new(1.0, theme::ACCENT_CYAN),
+    );
+}
+
+fn paint_compile_diagnostics(ui: &egui::Ui, tab: &EditorTab) {
+    if tab.compile_diagnostics.is_empty() {
+        return;
+    }
+    let t = theme::editor_theme();
+    let row_h = ui.fonts_mut(|f| {
+        f.layout_no_wrap(
+            "M".to_string(),
+            egui::FontId::monospace(t.code_font_size),
+            egui::Color32::WHITE,
+        )
+        .size()
+        .y
+    });
+    let clip = ui.clip_rect();
+    let painter = ui.painter();
+    for diag in &tab.compile_diagnostics {
+        if diag.line == 0 {
+            continue;
+        }
+        let y = ui.min_rect().top() + (diag.line.saturating_sub(1) as f32) * row_h + row_h * 0.5;
+        if y < clip.top() || y > clip.bottom() {
+            continue;
+        }
+        let pos = egui::pos2(clip.left() + 8.0, y);
+        painter.circle_filled(pos, 3.0, theme::ACCENT_RED);
     }
 }
 

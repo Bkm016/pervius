@@ -4,6 +4,7 @@
 
 use super::class_info::ClassInfoItem;
 use super::decompile_progress::DecompileProgressItem;
+use super::download_progress::DownloadProgressItem;
 use super::export_progress::ExportProgressItem;
 use super::index_progress::IndexProgressItem;
 use super::modified_count::ModifiedCountItem;
@@ -12,13 +13,13 @@ use crate::appearance::theme;
 use crate::ui::editor::view_toggle::ActiveView;
 use eframe::egui;
 use egui_shell::components::panel::status_bar::{Alignment, StatusBarWidget, StatusItem, TextItem};
-use pervius_java_bridge::{assembler, decompiler};
+use pervius_java_bridge::environment::DownloadProgressSnapshot;
 use rust_i18n::t;
 
 tabookit::class! {
     /// 状态栏服务
     ///
-    /// 内置默认 items（版本号、类信息、编码、反编译器版本、视图切换），
+    /// 内置默认 items（应用版本、类信息、视图切换与后台进度），
     /// 外部只需调用 `render` 和 `sync` 即可。
     pub struct StatusBar {
         widget: StatusBarWidget,
@@ -66,10 +67,24 @@ tabookit::class! {
         }
     }
 
+    /// 同步源码编译状态
+    pub fn sync_compile_single(&mut self, name: &str) {
+        if let Some(item) = self.item_mut::<DecompileProgressItem>() {
+            item.set_compile(name);
+        }
+    }
+
     /// 同步批量反编译进度，None 表示无任务
     pub fn sync_decompile(&mut self, info: Option<(&str, u32, u32)>) {
         if let Some(item) = self.item_mut::<DecompileProgressItem>() {
             item.set_progress(info);
+        }
+    }
+
+    /// 同步外部工具下载进度，None 表示无任务
+    pub fn sync_download(&mut self, progress: Option<DownloadProgressSnapshot>) {
+        if let Some(item) = self.item_mut::<DownloadProgressItem>() {
+            item.set_progress(progress);
         }
     }
 
@@ -114,34 +129,9 @@ impl Default for StatusBar {
             Alignment::Left,
         ));
         widget.add(ClassInfoItem::new());
-        if let Some(ver) = decompiler::vineflower_version() {
-            widget.add(TextItem::new(
-                t!("decompiler.vineflower_version", version = ver),
-                theme::ACCENT_GREEN,
-                Alignment::Right,
-            ));
-        } else {
-            widget.add(TextItem::new(
-                t!("status.vineflower_not_found"),
-                theme::ACCENT_RED,
-                Alignment::Right,
-            ));
-        }
-        if let Some(ver) = assembler::classforge_version() {
-            widget.add(TextItem::new(
-                t!("status.classforge_version", version = ver),
-                theme::ACCENT_GREEN,
-                Alignment::Right,
-            ));
-        } else {
-            widget.add(TextItem::new(
-                t!("status.classforge_not_found"),
-                theme::ACCENT_RED,
-                Alignment::Right,
-            ));
-        }
         widget.add(ModifiedCountItem::new());
         widget.add(ViewToggleItem::new());
+        widget.add(DownloadProgressItem::new());
         widget.add(DecompileProgressItem::new());
         widget.add(ExportProgressItem::new());
         widget.add(IndexProgressItem::new());

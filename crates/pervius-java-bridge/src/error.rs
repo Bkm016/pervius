@@ -30,6 +30,12 @@ pub enum BridgeError {
     Parse(String),
     /// ClassForge 工具错误
     ClassForge(String),
+    /// 当前 Java 环境缺少 javac
+    JdkRequired,
+    /// Java 源码编译错误
+    Compile(String),
+    /// 外部工具下载失败
+    Download(String),
     /// Vineflower 未产出结果
     NoOutput,
 }
@@ -54,6 +60,9 @@ impl std::fmt::Display for BridgeError {
             Self::Io(e) => write!(f, "{e}"),
             Self::Parse(msg) => write!(f, "Parse error: {msg}"),
             Self::ClassForge(msg) => write!(f, "ClassForge: {msg}"),
+            Self::JdkRequired => write!(f, "JDK required to compile Java source"),
+            Self::Compile(msg) => write!(f, "Compile error: {msg}"),
+            Self::Download(msg) => write!(f, "Download error: {msg}"),
             Self::NoOutput => write!(f, "Decompiler produced no output"),
         }
     }

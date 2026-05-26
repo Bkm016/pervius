@@ -29,6 +29,8 @@ tabookit::class! {
         pub saved_members: HashMap<String, HashSet<SavedMember>>,
         /// Shift+Click 导航请求（由 viewer 产生，由 App 消费）
         pub pending_navigate: Option<PendingNavigate>,
+        /// 源码编辑右键菜单触发的立即编译请求
+        pub pending_recompile: Option<String>,
     }
     pub fn new() -> Self {
         Self {
@@ -37,6 +39,7 @@ tabookit::class! {
             blocked_close: None,
             saved_members: HashMap::new(),
             pending_navigate: None,
+            pending_recompile: None,
         }
     }
 
@@ -244,7 +247,7 @@ tabookit::class! {
     pub fn unsaved_paths(&self) -> Vec<String> {
         self.dock_state
             .iter_all_tabs()
-            .filter(|(_, t)| t.is_modified)
+            .filter(|(_, t)| t.is_modified || t.source_modified)
             .filter_map(|(_, t)| t.entry_path.clone())
             .collect()
     }
@@ -273,7 +276,7 @@ tabookit::class! {
     /// 切换当前 tab 的视窗模式
     pub fn toggle_viewport(&mut self) {
         let tab = tabookit::or!(self.focused_tab(), return);
-        if !tab.is_text {
+        if !(tab.is_text || (tab.is_class && tab.is_source_unlocked())) {
             return;
         }
         let currently_on = match tab.viewport_override {
@@ -311,10 +314,9 @@ tabookit::class! {
                 continue;
             };
             if let Some(cached) = decompiler::cached_source(hash, &entry) {
-                let lang = if cached.is_kotlin {
-                    egui_editor::Language::Kotlin
-                } else {
-                    egui_editor::Language::Java
+                let lang = match cached.language {
+                    decompiler::DecompiledSourceLanguage::Kotlin => egui_editor::Language::Kotlin,
+                    decompiler::DecompiledSourceLanguage::Java => egui_editor::Language::Java,
                 };
                 tab.set_decompiled(cached.source, lang, cached.line_mapping);
                 if tab.active_view == ActiveView::Hex {
@@ -356,7 +358,7 @@ tabookit::class! {
             if let Some(tab_idx) = active {
                 let is_modified = leaf
                     .and_then(|l| l.tabs.get(tab_idx.0))
-                    .is_some_and(|t| t.is_modified);
+                    .is_some_and(|t| t.is_modified || t.source_modified);
                 if is_modified {
                     let entry_path = leaf
                         .and_then(|l| l.tabs.get(tab_idx.0))
@@ -372,7 +374,11 @@ tabookit::class! {
 
     /// 关闭所有 tab
     pub fn close_all_tabs(&mut self) {
-        if self.dock_state.iter_all_tabs().any(|(_, t)| t.is_modified) {
+        if self
+            .dock_state
+            .iter_all_tabs()
+            .any(|(_, t)| t.is_modified || t.source_modified)
+        {
             self.blocked_close = Some(TabAction::CloseAll);
             return;
         }
@@ -393,12 +399,16 @@ tabookit::class! {
             TabAction::Close(path) => self
                 .dock_state
                 .iter_all_tabs()
-                .any(|(_, t)| t.entry_path == *path && t.is_modified),
-            TabAction::CloseAll => self.dock_state.iter_all_tabs().any(|(_, t)| t.is_modified),
+                .any(|(_, t)| t.entry_path == *path && (t.is_modified || t.source_modified)),
+            TabAction::CloseAll => self
+                .dock_state
+                .iter_all_tabs()
+                .any(|(_, t)| t.is_modified || t.source_modified),
             TabAction::CloseOthers(keep) => self
                 .dock_state
                 .iter_all_tabs()
-                .any(|(_, t)| t.entry_path != *keep && t.is_modified),
+                .any(|(_, t)| t.entry_path != *keep && (t.is_modified || t.source_modified)),
+            TabAction::RecompileSource(_) => false,
             TabAction::CloseToRight(after) => {
                 let found = self.dock_state.find_tab_from(|t| t.entry_path == *after);
                 match found {
@@ -407,7 +417,7 @@ tabookit::class! {
                         .is_some_and(|leaf| {
                             leaf.tabs[tab_path.tab.0 + 1..]
                                 .iter()
-                                .any(|t| t.is_modified)
+                                .any(|t| t.is_modified || t.source_modified)
                         }),
                     None => false,
                 }
@@ -418,6 +428,11 @@ tabookit::class! {
     /// 强制执行 tab 关闭动作（跳过 is_modified 检查，由确认对话框调用）
     pub fn force_tab_action(&mut self, action: TabAction) {
         match action {
+            TabAction::RecompileSource(path) => {
+                if let Some(path) = path {
+                    self.pending_recompile = Some(path);
+                }
+            }
             TabAction::Close(path) => {
                 let found = self.dock_state.find_tab_from(|t| t.entry_path == path);
                 if let Some(tab_path) = found {

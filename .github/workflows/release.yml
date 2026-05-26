@@ -26,11 +26,11 @@ jobs:
 
     runs-on: ${{ matrix.os }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v6
 
       - uses: dtolnay/rust-toolchain@stable
 
-      - uses: actions/cache@v4
+      - uses: actions/cache@v5
         with:
           path: |
             ~/.cargo/registry/cache
@@ -87,9 +87,9 @@ jobs:
             <key>CFBundleDisplayName</key>
             <string>Pervius</string>
             <key>CFBundleVersion</key>
-            <string>0.1.0</string>
+            <string>0.2.0</string>
             <key>CFBundleShortVersionString</key>
-            <string>0.1.0</string>
+            <string>0.2.0</string>
             <key>CFBundlePackageType</key>
             <string>APPL</string>
             <key>CFBundleIconFile</key>
@@ -114,7 +114,7 @@ jobs:
           fi
 
       - name: Upload to Release
-        uses: softprops/action-gh-release@v2
+        uses: softprops/action-gh-release@v3
         with:
           body: |
             ## Download
@@ -136,7 +136,7 @@ jobs:
         if: matrix.os == 'windows-latest'
 
       - name: Upload to Release
-        uses: softprops/action-gh-release@v2
+        uses: softprops/action-gh-release@v3
         with:
           files: ${{ matrix.asset_name }}
         if: matrix.os != 'windows-latest'

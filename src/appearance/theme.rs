@@ -53,8 +53,8 @@ pub const SYN_KEYWORD: egui::Color32 = egui::Color32::from_rgb(207, 142, 109);
 pub const SYN_OPCODE: egui::Color32 = egui::Color32::from_rgb(104, 151, 187);
 /// 字符串 #6AAB73
 pub const SYN_STRING: egui::Color32 = egui::Color32::from_rgb(106, 171, 115);
-/// 类型（与默认文字同色，IntelliJ 不对类引用做特殊着色）
-pub const SYN_TYPE: egui::Color32 = SYN_TEXT;
+/// 类型 / 类名（白色）
+pub const SYN_TYPE: egui::Color32 = TEXT_PRIMARY;
 /// 常量 / 字段 #C77DBB
 pub const SYN_CONSTANT: egui::Color32 = egui::Color32::from_rgb(199, 125, 187);
 /// 数字 #2AACB8
@@ -63,8 +63,8 @@ pub const SYN_NUMBER: egui::Color32 = egui::Color32::from_rgb(42, 172, 184);
 pub const SYN_COMMENT: egui::Color32 = egui::Color32::from_rgb(122, 126, 133);
 /// 注解 #B3AE60
 pub const SYN_ANNOTATION: egui::Color32 = egui::Color32::from_rgb(179, 174, 96);
-/// 方法调用（与默认文字同色）
-pub const SYN_METHOD: egui::Color32 = SYN_TEXT;
+/// 方法调用 #7CB4FF
+pub const SYN_METHOD: egui::Color32 = egui::Color32::from_rgb(124, 180, 255);
 /// 方法声明 #56A8F5
 pub const SYN_METHOD_DECL: egui::Color32 = egui::Color32::from_rgb(86, 168, 245);
 

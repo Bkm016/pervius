@@ -29,7 +29,11 @@ fn mono_label(ui: &mut egui::Ui, text: &str, color: egui::Color32) {
     ui.label(egui::RichText::new(text).color(color).font(mono_12()));
 }
 
-pub fn render_class_info_editable(ui: &mut egui::Ui, cs: &mut ClassStructure) -> bool {
+pub fn render_class_info_editable(
+    ui: &mut egui::Ui,
+    cs: &mut ClassStructure,
+    read_only: bool,
+) -> bool {
     let mut changed = false;
     egui::ScrollArea::vertical()
         .id_salt("bc_detail")
@@ -38,17 +42,36 @@ pub fn render_class_info_editable(ui: &mut egui::Ui, cs: &mut ClassStructure) ->
             // push_id 隔离 TextEdit undo 历史，避免与 Field/Method 面板共享 widget ID
             ui.push_id("class_info", |ui| {
                 ui.add_space(theme::BYTECODE_DETAIL_PAD);
-                changed |=
-                    render_editable_kv(ui, "Access", &mut cs.info.access, theme::SYN_KEYWORD);
-                changed |= render_editable_kv(ui, "Name", &mut cs.info.name, theme::TEXT_PRIMARY);
+                changed |= render_editable_kv(
+                    ui,
+                    "Access",
+                    &mut cs.info.access,
+                    theme::SYN_KEYWORD,
+                    read_only,
+                );
+                changed |= render_editable_kv(
+                    ui,
+                    "Name",
+                    &mut cs.info.name,
+                    theme::TEXT_PRIMARY,
+                    read_only,
+                );
                 changed |= render_editable_kv(
                     ui,
                     "Extends",
                     &mut cs.info.super_class,
                     theme::TEXT_PRIMARY,
+                    read_only,
                 );
                 let mut ifaces_str = cs.info.interfaces.join(", ");
-                if render_editable_kv(ui, "Implements", &mut ifaces_str, theme::TEXT_PRIMARY) {
+                let ifaces_changed = render_editable_kv(
+                    ui,
+                    "Implements",
+                    &mut ifaces_str,
+                    theme::TEXT_PRIMARY,
+                    read_only,
+                );
+                if ifaces_changed {
                     cs.info.interfaces = ifaces_str
                         .split(',')
                         .map(|s| s.trim().to_string())
@@ -57,7 +80,7 @@ pub fn render_class_info_editable(ui: &mut egui::Ui, cs: &mut ClassStructure) ->
                     changed = true;
                 }
                 ui.add_space(8.0);
-                changed |= render_annotations(ui, &mut cs.info.annotations);
+                changed |= render_annotations(ui, &mut cs.info.annotations, read_only);
                 if cs.info.signature.is_some()
                     || cs.info.source_file.is_some()
                     || cs.info.is_deprecated
@@ -81,7 +104,12 @@ pub fn render_class_info_editable(ui: &mut egui::Ui, cs: &mut ClassStructure) ->
     changed
 }
 
-pub fn render_field_editable(ui: &mut egui::Ui, field: &mut FieldInfo, idx: usize) -> bool {
+pub fn render_field_editable(
+    ui: &mut egui::Ui,
+    field: &mut FieldInfo,
+    idx: usize,
+    read_only: bool,
+) -> bool {
     let mut changed = false;
     egui::ScrollArea::vertical()
         .id_salt("bc_detail")
@@ -90,20 +118,33 @@ pub fn render_field_editable(ui: &mut egui::Ui, field: &mut FieldInfo, idx: usiz
             // push_id 隔离 TextEdit undo 历史，避免与其他 Field/Method 共享 widget ID
             ui.push_id(("field", idx), |ui| {
                 ui.add_space(theme::BYTECODE_DETAIL_PAD);
-                changed |= render_editable_kv(ui, "Access", &mut field.access, theme::SYN_KEYWORD);
-                changed |= render_editable_kv(ui, "Name", &mut field.name, theme::TEXT_PRIMARY);
+                changed |= render_editable_kv(
+                    ui,
+                    "Access",
+                    &mut field.access,
+                    theme::SYN_KEYWORD,
+                    read_only,
+                );
+                changed |= render_editable_kv(
+                    ui,
+                    "Name",
+                    &mut field.name,
+                    theme::TEXT_PRIMARY,
+                    read_only,
+                );
                 changed |= render_editable_kv(
                     ui,
                     "Descriptor",
                     &mut field.descriptor,
                     theme::TEXT_PRIMARY,
+                    read_only,
                 );
                 render_preview(ui, &format!("→ {}", short_descriptor(&field.descriptor)));
                 if let Some(cv) = &mut field.constant_value {
-                    changed |= render_editable_kv(ui, "Value", cv, theme::SYN_STRING);
+                    changed |= render_editable_kv(ui, "Value", cv, theme::SYN_STRING, read_only);
                 }
                 ui.add_space(8.0);
-                changed |= render_annotations(ui, &mut field.annotations);
+                changed |= render_annotations(ui, &mut field.annotations, read_only);
                 render_readonly_attrs(
                     ui,
                     &field.signature,
@@ -123,6 +164,7 @@ pub fn render_method_editable(
     matches: &[FindMatch],
     current: Option<usize>,
     scroll_to_line: &mut Option<usize>,
+    read_only: bool,
 ) -> bool {
     let mut changed = false;
     egui::ScrollArea::both()
@@ -132,13 +174,26 @@ pub fn render_method_editable(
             // push_id 隔离 TextEdit undo 历史，避免与其他 Method/Field 共享 widget ID
             ui.push_id(("method", idx), |ui| {
                 ui.add_space(theme::BYTECODE_DETAIL_PAD);
-                changed |= render_editable_kv(ui, "Access", &mut method.access, theme::SYN_KEYWORD);
-                changed |= render_editable_kv(ui, "Name", &mut method.name, theme::TEXT_PRIMARY);
+                changed |= render_editable_kv(
+                    ui,
+                    "Access",
+                    &mut method.access,
+                    theme::SYN_KEYWORD,
+                    read_only,
+                );
+                changed |= render_editable_kv(
+                    ui,
+                    "Name",
+                    &mut method.name,
+                    theme::TEXT_PRIMARY,
+                    read_only,
+                );
                 changed |= render_editable_kv(
                     ui,
                     "Descriptor",
                     &mut method.descriptor,
                     theme::TEXT_PRIMARY,
+                    read_only,
                 );
                 let ret = return_type_readable(&method.descriptor);
                 let params = short_params(&method.descriptor);
@@ -153,23 +208,39 @@ pub fn render_method_editable(
                     render_kv(ui, "Throws", &throws);
                 }
                 ui.add_space(8.0);
-                changed |= render_annotations(ui, &mut method.annotations);
+                changed |= render_annotations(ui, &mut method.annotations, read_only);
                 if method.has_code {
                     ui.add_space(12.0);
                     let t = theme::editor_theme();
                     let mut bc_cache = None;
-                    changed |= egui_editor::code_view::code_view_editable(
-                        ui,
-                        egui::Id::new(("bc_code", idx)),
-                        &mut method.bytecode,
-                        egui_editor::Language::Bytecode,
-                        matches,
-                        current,
-                        &t,
-                        &mut bc_cache,
-                        None,
-                        scroll_to_line,
-                    );
+                    let output = if read_only {
+                        egui_editor::code_view::code_view_readonly_editable_style(
+                            ui,
+                            egui::Id::new(("bc_code", idx)),
+                            &mut method.bytecode,
+                            egui_editor::Language::Bytecode,
+                            matches,
+                            current,
+                            &t,
+                            &mut bc_cache,
+                            None,
+                            scroll_to_line,
+                        )
+                    } else {
+                        egui_editor::code_view::code_view_editable(
+                            ui,
+                            egui::Id::new(("bc_code", idx)),
+                            &mut method.bytecode,
+                            egui_editor::Language::Bytecode,
+                            matches,
+                            current,
+                            &t,
+                            &mut bc_cache,
+                            None,
+                            scroll_to_line,
+                        )
+                    };
+                    changed |= output.value;
                 } else {
                     ui.add_space(12.0);
                     ui.horizontal(|ui| {
@@ -198,11 +269,15 @@ fn is_kotlin_internal_annotation(type_desc: &str) -> bool {
 }
 
 /// 渲染注解列表：每行一个注解（类型 + 元素），可增删改。返回是否变更
-fn render_annotations(ui: &mut egui::Ui, annotations: &mut Vec<EditableAnnotation>) -> bool {
+fn render_annotations(
+    ui: &mut egui::Ui,
+    annotations: &mut Vec<EditableAnnotation>,
+    read_only: bool,
+) -> bool {
     let mut changed = false;
     let mut remove_idx = None;
     for (i, ann) in annotations.iter_mut().enumerate() {
-        let readonly = is_kotlin_internal_annotation(&ann.type_desc);
+        let readonly = read_only || is_kotlin_internal_annotation(&ann.type_desc);
         ui.horizontal(|ui| {
             ui.add_space(theme::BYTECODE_DETAIL_PAD);
             mono_label(ui, "@", theme::SYN_ANNOTATION);
@@ -271,25 +346,27 @@ fn render_annotations(ui: &mut egui::Ui, annotations: &mut Vec<EditableAnnotatio
         annotations.remove(idx);
         changed = true;
     }
-    ui.horizontal(|ui| {
-        ui.add_space(theme::BYTECODE_DETAIL_PAD);
-        let fbt = flat_button_theme(theme::TEXT_SECONDARY);
-        if ui
-            .add(
-                FlatButton::new("+ annotation", &fbt)
-                    .font_size(11.0)
-                    .inactive_color(theme::TEXT_MUTED)
-                    .min_size(egui::vec2(0.0, 20.0)),
-            )
-            .clicked()
-        {
-            annotations.push(EditableAnnotation {
-                type_desc: String::new(),
-                elements: Vec::new(),
-            });
-            changed = true;
-        }
-    });
+    if !read_only {
+        ui.horizontal(|ui| {
+            ui.add_space(theme::BYTECODE_DETAIL_PAD);
+            let fbt = flat_button_theme(theme::TEXT_SECONDARY);
+            if ui
+                .add(
+                    FlatButton::new("+ annotation", &fbt)
+                        .font_size(11.0)
+                        .inactive_color(theme::TEXT_MUTED)
+                        .min_size(egui::vec2(0.0, 20.0)),
+                )
+                .clicked()
+            {
+                annotations.push(EditableAnnotation {
+                    type_desc: String::new(),
+                    elements: Vec::new(),
+                });
+                changed = true;
+            }
+        });
+    }
     changed
 }
 
@@ -366,11 +443,20 @@ fn render_editable_kv(
     key: &str,
     value: &mut String,
     color: egui::Color32,
+    read_only: bool,
 ) -> bool {
     let mut changed = false;
     ui.horizontal(|ui| {
         render_kv_label(ui, key);
-        changed = styled_singleline(ui, value, color, 13.0).changed();
+        if read_only {
+            ui.label(
+                egui::RichText::new(value.as_str())
+                    .color(color)
+                    .font(egui::FontId::monospace(13.0)),
+            );
+        } else {
+            changed = styled_singleline(ui, value, color, 13.0).changed();
+        }
     });
     changed
 }

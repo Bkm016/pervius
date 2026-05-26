@@ -23,6 +23,7 @@ pub(crate) struct TextEditFrameState {
     pub(crate) cursor_secondary: usize,
     pub(crate) galley: Option<Arc<egui::Galley>>,
     pub(crate) galley_pos: egui::Pos2,
+    pub(crate) response: Option<egui::Response>,
 }
 
 fn paint_line_highlight_animation(
@@ -111,6 +112,7 @@ pub(crate) fn show_code_view_frame(
         cursor_secondary: 0,
         galley: None,
         galley_pos: egui::Pos2::ZERO,
+        response: None,
     };
     ui.horizontal_top(|ui| {
         ui.add_space(gutter_w + GUTTER_PAD + TEXT_PAD_LEFT);
@@ -124,6 +126,7 @@ pub(crate) fn show_code_view_frame(
             frame.cursor_secondary = cr.secondary.index;
         }
         inspect_output(ui, &output);
+        frame.response = Some(output.response.response.clone());
         scroll_to_requested_line(ui, &output, frame.galley_y, line_count, scroll_to_line);
         if output.response.dragged() {
             let (ed, wd) = detect_edge_scroll(&output.response, ui);

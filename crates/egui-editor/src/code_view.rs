@@ -25,6 +25,12 @@ pub use gutter::{line_number_width, paint_editor_bg};
 pub use layout::{EditableLayoutCache, LayoutCache};
 pub use navigation::NavigationHit;
 
+/// 代码视图渲染输出
+pub struct CodeViewOutput<T> {
+    pub value: T,
+    pub response: Option<egui::Response>,
+}
+
 use frame::{
     finish_code_view_frame, line_highlight_ids, remember_line_highlight, show_code_view_frame,
 };
@@ -52,7 +58,7 @@ pub fn code_view(
     cache: &mut Option<LayoutCache>,
     scroll_to_line: &mut Option<usize>,
     known_classes: Option<&HashSet<String>>,
-) -> Option<NavigationHit> {
+) -> CodeViewOutput<Option<NavigationHit>> {
     let line_count = text.split('\n').count().max(1);
     let max_number = if line_mapping.is_empty() {
         line_count
@@ -107,13 +113,16 @@ pub fn code_view(
         theme,
     );
     LayoutCache::update_highlight_word(cache, text, new_word);
-    nav_hit
+    CodeViewOutput {
+        value: nav_hit,
+        response: frame.response,
+    }
 }
 
-/// 可编辑代码视图（TextEdit + 语法高亮 + 搜索高亮 + 行号）
+/// 结构代码视图（TextEdit + 语法高亮 + 搜索高亮 + 行号）
 ///
-/// 返回 `true` 表示文本已被修改，调用方負责刷新高亮数据和标记 tab 状态。
-pub fn code_view_editable(
+/// `editable` 为 `false` 时仍可正常显示和选择文本，但不会写入修改。
+fn code_view_structured(
     ui: &mut egui::Ui,
     id: egui::Id,
     text: &mut String,
@@ -124,7 +133,8 @@ pub fn code_view_editable(
     cache: &mut Option<EditableLayoutCache>,
     viewport_override: Option<bool>,
     scroll_to_line: &mut Option<usize>,
-) -> bool {
+    editable: bool,
+) -> CodeViewOutput<bool> {
     // 视窗模式判断：优先用手动覆盖，否则自动检测
     let is_viewport = match viewport_override {
         Some(v) => v,
@@ -148,6 +158,7 @@ pub fn code_view_editable(
                     theme,
                     cache,
                     scroll_to_line,
+                    editable,
                 );
                 // viewport 函数内部会把 is_viewport 写回 true，必须在之后强制覆盖
                 if let Some(c) = cache.as_mut() {
@@ -155,12 +166,15 @@ pub fn code_view_editable(
                 }
                 paint_transition_overlay(ui, theme);
                 ui.ctx().request_repaint();
-                return false;
+                return CodeViewOutput {
+                    value: false,
+                    response: None,
+                };
             }
         }
     }
     if is_viewport {
-        return viewport::code_view_editable_viewport(
+        let changed = viewport::code_view_editable_viewport(
             ui,
             id,
             text,
@@ -170,7 +184,12 @@ pub fn code_view_editable(
             theme,
             cache,
             scroll_to_line,
+            editable,
         );
+        return CodeViewOutput {
+            value: changed,
+            response: None,
+        };
     }
     let line_count = text.split('\n').count().max(1);
     let gutter_w = line_number_width(line_count);
@@ -186,22 +205,42 @@ pub fn code_view_editable(
         let mut layouter = EditableLayoutCache::build_layouter(
             lang, match_ref, current, word_ref, word_gen, theme, &code_font, cache,
         );
-        show_code_view_frame(
-            ui,
-            text,
-            id,
-            &code_font,
-            theme,
-            gutter_w,
-            hl_time_id,
-            hl_line_id,
-            line_count,
-            scroll_to_line,
-            &mut layouter,
-            |_ui, output| {
-                changed = output.response.changed();
-            },
-        )
+        if editable {
+            show_code_view_frame(
+                ui,
+                text,
+                id,
+                &code_font,
+                theme,
+                gutter_w,
+                hl_time_id,
+                hl_line_id,
+                line_count,
+                scroll_to_line,
+                &mut layouter,
+                |_ui, output| {
+                    changed = output.response.changed();
+                },
+            )
+        } else {
+            let mut buf = text.as_str();
+            show_code_view_frame(
+                ui,
+                &mut buf,
+                id,
+                &code_font,
+                theme,
+                gutter_w,
+                hl_time_id,
+                hl_line_id,
+                line_count,
+                scroll_to_line,
+                &mut layouter,
+                |_ui, _output| {
+                    changed = false;
+                },
+            )
+        }
     };
     let line_count_now = text.split('\n').count().max(1);
     let new_word = finish_code_view_frame(
@@ -216,7 +255,70 @@ pub fn code_view_editable(
         theme,
     );
     EditableLayoutCache::update_highlight_word(cache, text, new_word);
-    changed
+    CodeViewOutput {
+        value: changed,
+        response: frame.response,
+    }
+}
+
+/// 可编辑代码视图（TextEdit + 语法高亮 + 搜索高亮 + 行号）
+///
+/// 返回 `true` 表示文本已被修改，调用方负责刷新高亮数据和标记 tab 状态。
+pub fn code_view_editable(
+    ui: &mut egui::Ui,
+    id: egui::Id,
+    text: &mut String,
+    lang: Language,
+    matches: &[FindMatch],
+    current: Option<usize>,
+    theme: &CodeViewTheme,
+    cache: &mut Option<EditableLayoutCache>,
+    viewport_override: Option<bool>,
+    scroll_to_line: &mut Option<usize>,
+) -> CodeViewOutput<bool> {
+    code_view_structured(
+        ui,
+        id,
+        text,
+        lang,
+        matches,
+        current,
+        theme,
+        cache,
+        viewport_override,
+        scroll_to_line,
+        true,
+    )
+}
+
+/// 只读代码视图（TextEdit + 语法高亮 + 搜索高亮 + 行号）
+///
+/// 用于需要保留代码视图显示/选择能力、但禁止编辑写入的场景。
+pub fn code_view_readonly_editable_style(
+    ui: &mut egui::Ui,
+    id: egui::Id,
+    text: &mut String,
+    lang: Language,
+    matches: &[FindMatch],
+    current: Option<usize>,
+    theme: &CodeViewTheme,
+    cache: &mut Option<EditableLayoutCache>,
+    viewport_override: Option<bool>,
+    scroll_to_line: &mut Option<usize>,
+) -> CodeViewOutput<bool> {
+    code_view_structured(
+        ui,
+        id,
+        text,
+        lang,
+        matches,
+        current,
+        theme,
+        cache,
+        viewport_override,
+        scroll_to_line,
+        false,
+    )
 }
 
 /// 视窗→普通模式过渡帧 overlay

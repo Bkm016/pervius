@@ -23,6 +23,12 @@ impl DecompileProgressItem {
         self.set_visible(true);
     }
 
+    /// 设置源码编译状态
+    pub fn set_compile(&mut self, name: &str) {
+        self.set_text(t!("status.compiling_single", name = name).to_string());
+        self.set_visible(true);
+    }
+
     /// 更新批量反编译进度，None 表示无任务
     pub fn set_progress(&mut self, info: Option<(&str, u32, u32)>) {
         match info {

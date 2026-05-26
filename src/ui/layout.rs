@@ -10,12 +10,12 @@ use crate::task::{Poll, Pollable, Task};
 use eframe::egui;
 use egui_keybind::KeyMap;
 use egui_shell::components::{SettingsFile, SettingsPanel};
-use pervius_java_bridge::{decompiler, process};
+use pervius_java_bridge::{decompiler, environment, process};
 use rust_i18n::t;
 use std::sync::atomic::Ordering;
 
 use super::editor::EditorArea;
-use super::explorer::FilePanel;
+use super::explorer::{ClasspathAction, FilePanel};
 use super::search::SearchDialog;
 use super::status_bar::StatusBar;
 
@@ -99,14 +99,19 @@ impl App {
 
     /// 轮询所有后台任务
     fn poll_tasks(&mut self) {
+        self.poll_vineflower_prepare();
         self.check_loading();
-        self.poll_jar_decompile();
-        self.poll_redecompile();
-        self.poll_class_decompiles();
-        self.poll_cache_delete();
-        self.poll_export_jar();
-        self.poll_search_index();
-        self.rebuild_search_index();
+        let loading = matches!(self.workspace, Workspace::Loading(_));
+        if !loading {
+            self.poll_jar_decompile();
+            self.poll_redecompile();
+            self.poll_class_decompiles();
+            self.poll_class_compiles();
+            self.poll_cache_delete();
+            self.poll_export_jar();
+            self.poll_search_index();
+            self.rebuild_search_index();
+        }
     }
 
     /// 分发快捷键（录制中跳过）
@@ -175,6 +180,7 @@ impl App {
         );
         if let Some(new_settings) = output.settings {
             self.apply_settings(new_settings);
+            ui.ctx().request_repaint();
         }
         if let Some(action) = output.action {
             self.handle_settings_action(action);
@@ -198,14 +204,86 @@ impl App {
         if new_settings.java.java_home != self.settings.java.java_home {
             process::set_java_home(&new_settings.java.java_home);
         }
-        if new_settings.cache.decompiled_dir != self.settings.cache.decompiled_dir {
+        let cache_changed = new_settings.cache.decompiled_dir != self.settings.cache.decompiled_dir;
+        let vineflower_changed = new_settings.java.vineflower_version != self.settings.java.vineflower_version
+            || new_settings.java.vineflower_dir != self.settings.java.vineflower_dir;
+        let kotlin_settings_changed = new_settings.java.kotlin_version != self.settings.java.kotlin_version
+            || new_settings.java.kotlin_dependencies_dir
+                != self.settings.java.kotlin_dependencies_dir;
+        let environment_changed = vineflower_changed || kotlin_settings_changed;
+        let kotlin_decompiler_changed =
+            new_settings.compile.kotlin_decompiler != self.settings.compile.kotlin_decompiler;
+        let refresh_cache_settings = cache_changed || kotlin_decompiler_changed;
+        let should_prepare_vineflower = vineflower_changed
+            || (cache_changed && new_settings.java.vineflower_dir.trim().is_empty());
+        if cache_changed {
             decompiler::set_cache_root(new_settings.cache.root_path());
-            settings::refresh_cache_state(&mut self.layout.settings_state);
-            self.sync_cache_state();
+        }
+        if kotlin_decompiler_changed {
+            self.apply_kotlin_decompiler_settings(&new_settings);
+        }
+        if environment_changed || cache_changed {
+            environment::set_environment_config(new_settings.java.environment_config());
+        }
+        if should_prepare_vineflower {
+            self.layout.status_bar = StatusBar::default();
         }
         self.settings = new_settings;
         if let Err(e) = self.settings.save() {
             log::warn!("配置保存失败: {e}");
+        }
+        if refresh_cache_settings {
+            settings::refresh_cache_state(&mut self.layout.settings_state);
+            self.sync_cache_state();
+        }
+        if should_prepare_vineflower {
+            self.start_vineflower_prepare();
+        }
+    }
+
+    fn apply_kotlin_decompiler_settings(&mut self, new_settings: &Settings) {
+        decompiler::set_kotlin_decompiler_mode(new_settings.compile.kotlin_decompiler.to_bridge());
+        self.pending_decompiles.clear();
+        let Some(loaded) = self.workspace.loaded_mut() else {
+            return;
+        };
+        loaded.pending_re_decompile = None;
+        if matches!(loaded.decompile, DecompilePhase::Running { .. }) {
+            loaded.decompile = DecompilePhase::Pending;
+        }
+    }
+
+    fn start_vineflower_prepare(&mut self) {
+        self.pending_vineflower_prepare = Some(Task::spawn(environment::ensure_vineflower));
+    }
+
+    fn poll_vineflower_prepare(&mut self) {
+        let Some(task) = &self.pending_vineflower_prepare else {
+            return;
+        };
+        let result = match task.poll() {
+            Poll::Ready(result) => result,
+            Poll::Pending => return,
+            Poll::Lost => {
+                self.pending_vineflower_prepare = None;
+                self.toasts.error(t!("layout.vineflower_prepare_task_failed"));
+                return;
+            }
+        };
+        self.pending_vineflower_prepare = None;
+        match result {
+            Ok(path) => {
+                self.layout.status_bar = StatusBar::default();
+                self.toasts.info(
+                    t!("layout.vineflower_prepare_complete", path = path.display().to_string()),
+                );
+            }
+            Err(error) => {
+                self.toasts.error(t!(
+                    "layout.vineflower_prepare_failed",
+                    error = error.to_string()
+                ));
+            }
         }
     }
 
@@ -214,12 +292,11 @@ impl App {
             return;
         }
         match action {
-            SettingsAction::DeleteCache { hash, label } => {
+            SettingsAction::DeleteCache { dir, label } => {
                 self.layout.settings_state.cache_busy = true;
-                self.pending_cache_delete = Some(Task::spawn(move || CacheDeleteResult::Single {
-                    deleted: decompiler::clear_cache_entry(&hash),
-                    hash,
-                    label,
+                self.pending_cache_delete = Some(Task::spawn(move || {
+                    let deleted = decompiler::clear_cache_entry_dir(&dir);
+                    CacheDeleteResult::Single { label, deleted }
                 }));
             }
             SettingsAction::DeleteAllCaches { count } => {
@@ -250,21 +327,11 @@ impl App {
         self.layout.settings_state.cache_busy = false;
         settings::refresh_cache_state(&mut self.layout.settings_state);
         match result {
-            CacheDeleteResult::Single {
-                hash,
-                label,
-                deleted,
-            } => {
+            CacheDeleteResult::Single { label, deleted } => {
                 if deleted {
                     self.toasts
                         .info(t!("layout.cache_deleted", name = label.as_str()));
-                    if self
-                        .workspace
-                        .jar()
-                        .is_some_and(|jar| jar.hash == hash || jar.hash.starts_with(&hash))
-                    {
-                        self.sync_cache_state();
-                    }
+                    self.sync_cache_state();
                 } else {
                     self.toasts
                         .error(t!("layout.cache_delete_failed", name = label.as_str()));
@@ -351,16 +418,62 @@ impl App {
             .workspace
             .loaded()
             .and_then(|s| s.decompile.decompiled_set());
+        let current_jar = self.workspace.jar().map(|jar| jar.path.clone());
+        let project_classpath = self
+            .workspace
+            .loaded()
+            .map(|s| s.compile_classpath_entries.clone())
+            .unwrap_or_default();
+        let global_classpath = self.settings.compile.classpath_entries.clone();
         let mut child = ui.new_child(
             egui::UiBuilder::new()
                 .id(egui::Id::new("explorer_island"))
                 .max_rect(rect),
         );
         child.set_clip_rect(rect);
-        self.layout
-            .file_panel
-            .render(&mut child, &tab_modified, &jar_modified, decompiled);
+        self.layout.file_panel.render(
+            &mut child,
+            &tab_modified,
+            &jar_modified,
+            decompiled,
+            current_jar.as_deref(),
+            &project_classpath,
+            &global_classpath,
+        );
+        self.handle_classpath_panel_action();
         egui_shell::components::widget::island::paint_corner_mask(ui, rect, &theme::ISLAND);
+    }
+
+    fn handle_classpath_panel_action(&mut self) {
+        let Some(action) = self.layout.file_panel.take_classpath_action() else {
+            return;
+        };
+        match action {
+            ClasspathAction::AddProject => self.add_classpath_dialog(),
+            ClasspathAction::RevealPath(path) => self.reveal_filesystem_path(&path),
+            ClasspathAction::RemoveProject(path) => {
+                if let Some(loaded) = self.workspace.loaded_mut() {
+                    let before = loaded.compile_classpath_entries.len();
+                    loaded.compile_classpath_entries.retain(|entry| entry != &path);
+                    if loaded.compile_classpath_entries.len() != before {
+                        self.toasts.info(t!("layout.classpath_removed", path = path.display()));
+                    }
+                }
+            }
+            ClasspathAction::RemoveGlobal(entry) => {
+                let before = self.settings.compile.classpath_entries.len();
+                self.settings
+                    .compile
+                    .classpath_entries
+                    .retain(|path| path != &entry);
+                if self.settings.compile.classpath_entries.len() != before {
+                    if let Err(e) = self.settings.save() {
+                        log::warn!("保存全局 classpath 失败: {e}");
+                    }
+                    self.toasts.info(t!("layout.classpath_removed", path = entry));
+                }
+            }
+        }
     }
 
     /// 渲染 editor 面板
@@ -391,6 +504,9 @@ impl App {
                 &jar_modified,
                 &known_classes,
             );
+            if let Some(entry) = self.layout.editor.pending_recompile.take() {
+                self.compile_source_tab(&entry);
+            }
         }
         egui_shell::components::widget::island::paint_corner_mask(ui, rect, &theme::ISLAND);
     }

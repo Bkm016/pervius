@@ -153,8 +153,43 @@ fn collect_treesitter_spans_checked(source: &str, lang: Language) -> (Vec<Span>,
         color_fn,
         source.as_bytes(),
     );
+    if lang == Language::Kotlin {
+        kotlin::patch_spans(&mut spans, source);
+    }
     spans.sort_by_key(|&(start, _, _)| start);
+    normalize_spans(&mut spans);
     (spans, has_errors)
+}
+
+fn normalize_spans(spans: &mut Vec<Span>) {
+    if spans.is_empty() {
+        return;
+    }
+    spans.sort_by_key(|&(start, end, kind)| (start, token_priority(kind), end - start));
+    let mut write = 0usize;
+    let mut covered_until = 0usize;
+    for read in 0..spans.len() {
+        let (mut start, end, kind) = spans[read];
+        if start < covered_until {
+            start = covered_until;
+        }
+        if start >= end {
+            continue;
+        }
+        spans[write] = (start, end, kind);
+        write += 1;
+        covered_until = end;
+    }
+    spans.truncate(write);
+    spans.sort_by_key(|&(start, _, _)| start);
+}
+
+fn token_priority(kind: TokenKind) -> u8 {
+    match kind {
+        TokenKind::String | TokenKind::Comment => 0,
+        TokenKind::Plain | TokenKind::Muted => 2,
+        _ => 1,
+    }
 }
 
 /// 各语言着色函数签名：返回 Some 表示命中，None 表示继续深入子节点

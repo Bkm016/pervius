@@ -2,7 +2,7 @@
 //!
 //! @author sky
 
-use super::App;
+use super::{editor_source_language, App};
 use crate::ui::editor::view_toggle::ActiveView;
 use crate::ui::editor::EditorTab;
 use egui_editor::highlight::Language;
@@ -14,10 +14,44 @@ impl App {
     ///
     /// 独立文件直接写回磁盘；JAR 条目写入 JAR 内存并触发重反编译。
     pub fn save_active_tab(&mut self) {
+        let compile_entry = {
+            let Some(tab) = self.layout.editor.focused_tab_mut() else {
+                return;
+            };
+            if !(tab.is_modified || tab.source_modified) {
+                return;
+            }
+            if tab.standalone_path.is_none()
+                && tab.is_class
+                && tab.is_source_unlocked()
+                && tab.source_modified
+            {
+                tab.entry_path.clone()
+            } else {
+                None
+            }
+        };
+        if let Some(entry_path) = compile_entry {
+            self.compile_source_tab(&entry_path);
+            return;
+        }
         let Some(tab) = self.layout.editor.focused_tab_mut() else {
             return;
         };
-        if !tab.is_modified {
+        // 独立 class 源码编辑同样必须走编译通道；只有结构化字节码编辑才会走 apply_structure/patch_methods。
+        if tab.standalone_path.is_some()
+            && tab.is_class
+            && tab.is_source_unlocked()
+            && tab.source_modified
+        {
+            if tab.is_modified {
+                self.toasts
+                    .warning(t!("editor.source_vs_struct_conflict"));
+                return;
+            }
+            if let Some(entry_path) = tab.entry_path.clone() {
+                self.compile_source_tab(&entry_path);
+            }
             return;
         }
         // 独立文件：直接写回磁盘，不参与 JAR modified 管理
@@ -60,10 +94,6 @@ impl App {
             return;
         }
         // class 文件：apply structure → 重建 CS → 写入 JAR → 重反编译
-        if decompiler::vineflower_version().is_none() {
-            self.toasts.error(t!("status.vineflower_not_found"));
-            return;
-        }
         let jar_path = self.workspace.jar().map(|j| j.path.as_path());
         match tab.serialize_bytes(jar_path) {
             Ok(new_bytes) => {
@@ -108,10 +138,10 @@ impl App {
             let cached = mem_cached
                 .cloned()
                 .or_else(|| jar_hash.and_then(|h| decompiler::cached_source(h, entry_path)));
-            let lang = match &cached {
-                Some(c) if c.is_kotlin => Language::Kotlin,
-                _ => Language::Java,
-            };
+            let lang = cached
+                .as_ref()
+                .map(|cached| editor_source_language(cached.language))
+                .unwrap_or(Language::Java);
             let mut tab = EditorTab::new_class(title, entry_path, bytes.to_vec(), lang);
             if let Some(c) = cached {
                 tab.set_decompiled(c.source, lang, c.line_mapping);

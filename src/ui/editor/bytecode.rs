@@ -18,6 +18,7 @@ pub fn render_bytecode_panel(
     matches: &[FindMatch],
     current: Option<usize>,
 ) {
+    let read_only = tab.is_source_unlocked();
     if tab.class_structure.is_none() {
         ui.centered_and_justified(|ui| {
             ui.label(
@@ -87,7 +88,7 @@ pub fn render_bytecode_panel(
     let changed = match selection {
         BytecodeSelection::ClassInfo => {
             let cs = tab.class_structure.as_mut().unwrap();
-            let c = render_class_info_editable(&mut content_ui, cs);
+            let c = render_class_info_editable(&mut content_ui, cs, read_only);
             if c {
                 cs.info.modified = true;
             }
@@ -96,7 +97,7 @@ pub fn render_bytecode_panel(
         BytecodeSelection::Field(idx) => {
             let cs = tab.class_structure.as_mut().unwrap();
             cs.fields.get_mut(idx).map_or(false, |field| {
-                let c = render_field_editable(&mut content_ui, field, idx);
+                let c = render_field_editable(&mut content_ui, field, idx, read_only);
                 if c {
                     field.modified = true;
                 }
@@ -107,8 +108,15 @@ pub fn render_bytecode_panel(
             let cs = tab.class_structure.as_mut().unwrap();
             let scroll = &mut tab.pending_scroll_to_line;
             cs.methods.get_mut(idx).map_or(false, |method| {
-                let c =
-                    render_method_editable(&mut content_ui, method, idx, matches, current, scroll);
+                let c = render_method_editable(
+                    &mut content_ui,
+                    method,
+                    idx,
+                    matches,
+                    current,
+                    scroll,
+                    read_only,
+                );
                 if c {
                     method.modified = true;
                 }

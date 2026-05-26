@@ -6,10 +6,12 @@
 //! @author sky
 
 use super::app::ShellTheme;
+#[cfg(not(target_os = "macos"))]
 use super::codicon;
 use eframe::egui;
 
 /// caption button 宽度
+#[cfg(not(target_os = "macos"))]
 const CAPTION_BTN_W: f32 = 46.0;
 /// 标题栏 logo 逻辑高度（逻辑像素）
 const LOGO_H: f32 = 18.0;

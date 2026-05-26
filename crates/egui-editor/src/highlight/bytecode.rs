@@ -319,15 +319,15 @@ fn is_number(word: &str) -> bool {
 
 /// JVM 类型描述符
 ///
-/// 单字符原始类型（V/Z/B/C/S/I/J/F/D）、对象描述符（`L...;`）、
-/// 数组描述符（`[` 后接有效描述符前缀）。
+/// 这里故意不把单字符原始类型（`I`/`D`/`V` 等）直接当成 Type，
+/// 因为 Recaf 风格字节码里分支标签和 `.var` 范围标签常用单个大写字母，
+/// 否则会把 `A B C D ...` 这类标签误着色成青色。
+///
+/// 仍保留对象描述符（`L...;`）和数组描述符（`[` 后接有效描述符前缀）。
 fn is_descriptor(word: &str) -> bool {
     let b = word.as_bytes();
-    if b.len() == 1 {
-        return matches!(
-            b[0],
-            b'V' | b'Z' | b'B' | b'C' | b'S' | b'I' | b'J' | b'F' | b'D'
-        );
+    if b.is_empty() {
+        return false;
     }
     // L...;  对象类型
     if b[0] == b'L' && *b.last().unwrap() == b';' && b.len() > 2 {

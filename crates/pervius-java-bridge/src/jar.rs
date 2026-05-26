@@ -126,6 +126,20 @@ tabookit::class! {
         self.modified_entries.clear();
     }
 
+    /// 将已修改条目提交为新的内存基线（覆盖源 JAR 成功后调用）。
+    pub fn commit_modified_from_file(&mut self, path: &Path) -> Result<(), BridgeError> {
+        for (entry_path, modified) in self.modified_entries.drain() {
+            self.entries.insert(entry_path, modified.data);
+        }
+        let data = std::fs::read(path)?;
+        self.file_size = data.len() as u64;
+        self.hash = Sha256::digest(&data)
+            .iter()
+            .map(|b| format!("{b:02x}"))
+            .collect();
+        Ok(())
+    }
+
     /// 条目是否已修改
     pub fn is_modified(&self, path: &str) -> bool {
         self.modified_entries.contains_key(path)
@@ -156,14 +170,19 @@ tabookit::class! {
     /// 获取排序后的条目路径列表
     pub fn paths(&self) -> Vec<&str> {
         let mut paths: Vec<&str> = self.entries.keys().map(|s| s.as_str()).collect();
+        for path in self.modified_entries.keys().map(|s| s.as_str()) {
+            if !self.entries.contains_key(path) {
+                paths.push(path);
+            }
+        }
         paths.sort_unstable();
         paths
     }
 
     /// .class 文件条目数量
     pub fn class_count(&self) -> u32 {
-        self.entries
-            .keys()
+        self.paths()
+            .into_iter()
             .filter(|k| k.ends_with(".class"))
             .count() as u32
     }
@@ -172,13 +191,18 @@ tabookit::class! {
     ///
     /// 返回排序后的 `(路径, 字节)` 列表，可安全移入后台线程。
     pub fn snapshot_entries(&self) -> Vec<(String, Vec<u8>)> {
-        let mut paths: Vec<&str> = self.entries.keys().map(|s| s.as_str()).collect();
+        let mut paths: Vec<String> = self.entries.keys().cloned().collect();
+        for path in self.modified_entries.keys() {
+            if !self.entries.contains_key(path) {
+                paths.push(path.clone());
+            }
+        }
         paths.sort_unstable();
         paths
             .into_iter()
             .map(|p| {
-                let data = self.get(p).unwrap().to_vec();
-                (p.to_owned(), data)
+                let data = self.get(&p).unwrap().to_vec();
+                (p, data)
             })
             .collect()
     }

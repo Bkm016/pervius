@@ -40,7 +40,7 @@ impl App {
                 .editor
                 .dock_state
                 .iter_all_tabs()
-                .any(|(_, tab)| tab.is_modified)
+                .any(|(_, tab)| tab.is_modified || tab.source_modified)
     }
 
     /// 带确认的关闭请求
@@ -117,6 +117,7 @@ impl App {
                 // 全局动作：清除所有未保存标记，避免 has_unsaved_changes() 再次拦截
                 for (_, tab) in self.layout.editor.dock_state.iter_all_tabs_mut() {
                     tab.is_modified = false;
+                    tab.source_modified = false;
                 }
                 if let Some(jar) = self.workspace.jar_mut() {
                     jar.clear_modified();
@@ -141,7 +142,7 @@ impl App {
                 self.start_confirmed_decompile();
             }
             ConfirmAction::OpenWindowChoice(_) => {
-                // 由 render_window_choice 独立处理，不经过此分支
+                // 由独立的多选项弹窗处理，不经过此分支
             }
         }
     }
@@ -315,4 +316,5 @@ impl App {
             _ => {}
         }
     }
+
 }

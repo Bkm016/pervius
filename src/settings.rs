@@ -9,11 +9,12 @@ use crate::appearance::{codicon, theme};
 use eframe::egui;
 use egui_keybind::KeyBind;
 use egui_shell::components::{
-    path_picker_with, section_header, FlatButton, SectionDef, SettingsFile, SettingsPanel,
+    path_picker_with, section_header, toggle, FlatButton, SectionDef, SettingsFile, SettingsPanel,
     SettingsTheme,
 };
 use egui_shell::keybind_rows;
 use pervius_java_bridge::decompiler::{self, CacheEntry};
+use pervius_java_bridge::{environment, process};
 use rust_i18n::t;
 use serde::{Deserialize, Serialize};
 use std::path::Path;
@@ -80,6 +81,36 @@ impl OpenBehavior {
     }
 }
 
+/// Kotlin 类反编译输出模式
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub enum KotlinDecompilerKind {
+    /// 输出 Kotlin 源码
+    #[default]
+    #[serde(rename = "vineflower")]
+    Vineflower,
+    /// 统一回退为 Java 源码
+    #[serde(rename = "java")]
+    Java,
+}
+
+impl KotlinDecompilerKind {
+    pub const ALL: &[Self] = &[Self::Vineflower, Self::Java];
+
+    pub fn label(self) -> String {
+        match self {
+            Self::Vineflower => t!("settings.kotlin_decompiler_vineflower").to_string(),
+            Self::Java => t!("settings.kotlin_decompiler_java").to_string(),
+        }
+    }
+
+    pub fn to_bridge(self) -> decompiler::KotlinDecompilerMode {
+        match self {
+            Self::Vineflower => decompiler::KotlinDecompilerMode::Vineflower,
+            Self::Java => decompiler::KotlinDecompilerMode::Java,
+        }
+    }
+}
+
 /// 最近打开的文件条目
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub struct RecentEntry {
@@ -91,18 +122,79 @@ pub struct RecentEntry {
     pub timestamp: u64,
 }
 
-/// Java 环境配置
+/// Java / 外部工具环境配置
 #[derive(Clone, Debug, Serialize, Deserialize)]
 #[serde(default)]
 pub struct JavaSettings {
     /// JAVA_HOME 路径（空字符串表示使用系统环境变量）
     pub java_home: String,
+    /// Vineflower 版本
+    pub vineflower_version: String,
+    /// Vineflower 存储目录（空字符串表示使用默认缓存工具目录）
+    pub vineflower_dir: String,
+    /// Kotlin 版本
+    pub kotlin_version: String,
+    /// Kotlin 依赖存储目录（空字符串表示使用默认缓存工具目录）
+    pub kotlin_dependencies_dir: String,
 }
 
 impl Default for JavaSettings {
     fn default() -> Self {
         Self {
             java_home: String::new(),
+            vineflower_version: environment::DEFAULT_VINEFLOWER_VERSION.to_string(),
+            vineflower_dir: String::new(),
+            kotlin_version: environment::DEFAULT_KOTLIN_VERSION.to_string(),
+            kotlin_dependencies_dir: String::new(),
+        }
+    }
+}
+
+impl JavaSettings {
+    /// 转换为 bridge 层环境工具配置。
+    pub fn environment_config(&self) -> environment::EnvironmentConfig {
+        environment::EnvironmentConfig {
+            vineflower_version: self.vineflower_version.clone(),
+            vineflower_dir: path_option(&self.vineflower_dir),
+            kotlin_version: self.kotlin_version.clone(),
+            kotlin_dependencies_dir: path_option(&self.kotlin_dependencies_dir),
+        }
+    }
+}
+
+fn path_option(path: &str) -> Option<std::path::PathBuf> {
+    let path = path.trim();
+    if path.is_empty() {
+        None
+    } else {
+        Some(path.into())
+    }
+}
+
+fn pick_folder_string() -> Option<String> {
+    rfd::FileDialog::new()
+        .pick_folder()
+        .map(|path| path.to_string_lossy().into_owned())
+}
+
+/// 编译配置
+#[derive(Clone, Debug, Serialize, Deserialize)]
+#[serde(default)]
+pub struct CompileSettings {
+    /// Kotlin 类反编译输出模式
+    pub kotlin_decompiler: KotlinDecompilerKind,
+    /// Kotlin 编译时跳过依赖元数据版本检查
+    pub kotlin_skip_metadata_version_check: bool,
+    /// 全局编译 classpath 条目（JAR / ZIP / 目录）。
+    pub classpath_entries: Vec<String>,
+}
+
+impl Default for CompileSettings {
+    fn default() -> Self {
+        Self {
+            kotlin_decompiler: KotlinDecompilerKind::Vineflower,
+            kotlin_skip_metadata_version_check: true,
+            classpath_entries: Vec::new(),
         }
     }
 }
@@ -191,6 +283,7 @@ impl Default for Settings {
             language: Language::default(),
             open_behavior: OpenBehavior::default(),
             java: JavaSettings::default(),
+            compile: CompileSettings::default(),
             cache: CacheSettings::default(),
             keymap: KeymapSettings::default(),
             recent: Vec::new(),
@@ -215,6 +308,8 @@ tabookit::class! {
         pub open_behavior: OpenBehavior,
         /// Java 环境设置
         pub java: JavaSettings,
+        /// 编译设置
+        pub compile: CompileSettings,
         /// 反编译缓存设置
         pub cache: CacheSettings,
         /// 快捷键设置
@@ -264,8 +359,8 @@ tabookit::class! {
 pub enum SettingsAction {
     /// 删除指定缓存
     DeleteCache {
-        /// 完整 hash
-        hash: String,
+        /// 缓存目录
+        dir: std::path::PathBuf,
         /// 展示名称
         label: String,
     },
@@ -332,7 +427,11 @@ pub fn show(
         },
         SectionDef {
             icon: codicon::BEAKER,
-            label: t!("settings.java").to_string(),
+            label: t!("settings.environment").to_string(),
+        },
+        SectionDef {
+            icon: codicon::TOOLS,
+            label: t!("settings.compile").to_string(),
         },
         SectionDef {
             icon: codicon::FOLDER,
@@ -361,7 +460,8 @@ fn render_section(
     match active {
         0 => render_general(draft, ui, st),
         1 => render_java(draft, ui, st),
-        2 => render_cache(draft, ui, st, state),
+        2 => render_compile(draft, ui, st),
+        3 => render_cache(draft, ui, st, state),
         _ => render_keymap(&mut draft.keymap, ui, st),
     }
 }
@@ -431,12 +531,387 @@ fn render_java(draft: &mut Settings, ui: &mut egui::Ui, st: &SettingsTheme) -> b
         &mut draft.java.java_home,
         &t!("settings.java_home_hint"),
         &t!("settings.browse"),
-        || {
-            rfd::FileDialog::new()
-                .pick_folder()
-                .map(|p| p.to_string_lossy().into_owned())
-        },
+        pick_folder_string,
     );
+    paint_java_path_hint(ui, st, &draft.java.java_home);
+    ui.add_space(10.0);
+    section_header(ui, st, &t!("settings.vineflower_tools"));
+    changed |= render_text_field_row(
+        ui,
+        st,
+        &t!("settings.vineflower_version"),
+        &mut draft.java.vineflower_version,
+        None,
+    );
+    changed |= path_picker_with(
+        ui,
+        st,
+        &t!("settings.vineflower_dir"),
+        &mut draft.java.vineflower_dir,
+        &t!("settings.vineflower_dir_hint"),
+        &t!("settings.browse"),
+        pick_folder_string,
+    );
+    paint_tool_dir_hint(ui, st, effective_vineflower_dir(draft));
+    ui.add_space(10.0);
+    section_header(ui, st, &t!("settings.kotlin_tools"));
+    changed |= render_text_field_row(
+        ui,
+        st,
+        &t!("settings.kotlin_version"),
+        &mut draft.java.kotlin_version,
+        None,
+    );
+    changed |= path_picker_with(
+        ui,
+        st,
+        &t!("settings.kotlin_dependencies_dir"),
+        &mut draft.java.kotlin_dependencies_dir,
+        &t!("settings.kotlin_dependencies_dir_hint"),
+        &t!("settings.browse"),
+        pick_folder_string,
+    );
+    paint_tool_dir_hint(ui, st, effective_kotlin_dependencies_dir(draft));
+    changed
+}
+
+fn effective_tool_dir(
+    draft: &Settings,
+    configured: &str,
+    sub_dir: &str,
+) -> Result<std::path::PathBuf, pervius_java_bridge::error::BridgeError> {
+    path_option(configured)
+        .map(Ok)
+        .unwrap_or_else(|| Ok(effective_dependencies_root(draft)?.join(sub_dir)))
+}
+
+fn effective_vineflower_dir(
+    draft: &Settings,
+) -> Result<std::path::PathBuf, pervius_java_bridge::error::BridgeError> {
+    effective_tool_dir(draft, &draft.java.vineflower_dir, "vineflower")
+}
+
+fn effective_kotlin_dependencies_dir(
+    draft: &Settings,
+) -> Result<std::path::PathBuf, pervius_java_bridge::error::BridgeError> {
+    effective_tool_dir(draft, &draft.java.kotlin_dependencies_dir, "kotlin")
+}
+
+fn effective_dependencies_root(
+    draft: &Settings,
+) -> Result<std::path::PathBuf, pervius_java_bridge::error::BridgeError> {
+    let cache_root = effective_cache_root(draft)?;
+    Ok(cache_root
+        .parent()
+        .map(|parent| parent.join("dependencies"))
+        .unwrap_or_else(|| cache_root.join("dependencies")))
+}
+
+fn effective_cache_root(
+    draft: &Settings,
+) -> Result<std::path::PathBuf, pervius_java_bridge::error::BridgeError> {
+    if let Some(path) = draft.cache.root_path() {
+        return Ok(path.to_path_buf());
+    }
+    let base = dirs::cache_dir().ok_or(pervius_java_bridge::error::BridgeError::NoCacheDir)?;
+    Ok(base.join("pervius").join("decompiled"))
+}
+
+fn render_text_field_row(
+    ui: &mut egui::Ui,
+    st: &SettingsTheme,
+    label: &str,
+    value: &mut String,
+    hint: Option<&str>,
+) -> bool {
+    let mut changed = false;
+    ui.horizontal(|ui| {
+        ui.add_space(16.0);
+        ui.label(
+            egui::RichText::new(label.to_string())
+                .size(13.0)
+                .color(st.text_primary),
+        );
+        ui.add_space(8.0);
+        let mut edit = egui::TextEdit::singleline(value).desired_width(160.0);
+        if let Some(hint) = hint {
+            edit = edit.hint_text(hint);
+        }
+        let resp = ui.add(edit);
+        changed |= resp.changed();
+    });
+    ui.add_space(4.0);
+    changed
+}
+
+fn paint_java_path_hint(ui: &mut egui::Ui, st: &SettingsTheme, configured: &str) {
+    let text = match process::resolve_java_path(configured) {
+        Ok(path) => t!("settings.java_current_path", path = path.display()).to_string(),
+        Err(error) => t!("settings.java_current_path_failed", error = error.to_string()).to_string(),
+    };
+    paint_path_hint_line(ui, st, text);
+}
+
+fn paint_tool_dir_hint(
+    ui: &mut egui::Ui,
+    st: &SettingsTheme,
+    path: Result<std::path::PathBuf, pervius_java_bridge::error::BridgeError>,
+) {
+    let text = match path {
+        Ok(path) => t!("settings.tool_current_dir", path = path.display()).to_string(),
+        Err(error) => t!("settings.tool_current_dir_failed", error = error.to_string()).to_string(),
+    };
+    paint_path_hint_line(ui, st, text);
+}
+
+fn paint_section_hint(ui: &mut egui::Ui, st: &SettingsTheme, text: String) {
+    ui.horizontal(|ui| {
+        ui.add_space(16.0);
+        ui.label(
+            egui::RichText::new(text)
+                .size(11.0)
+                .color(st.text_secondary),
+        );
+    });
+}
+
+fn paint_path_hint_line(ui: &mut egui::Ui, st: &SettingsTheme, text: String) {
+    ui.horizontal(|ui| {
+        ui.add_space(16.0);
+        ui.label(
+            egui::RichText::new(text)
+                .size(11.0)
+                .color(st.text_secondary)
+                .monospace(),
+        );
+    });
+}
+
+fn render_compile(draft: &mut Settings, ui: &mut egui::Ui, st: &SettingsTheme) -> bool {
+    let mut changed = false;
+    section_header(ui, st, &t!("settings.section_compile"));
+    ui.add_space(4.0);
+    ui.horizontal(|ui| {
+        ui.add_space(16.0);
+        ui.label(
+            egui::RichText::new(t!("settings.kotlin_decompiler").to_string())
+                .size(13.0)
+                .color(st.text_primary),
+        );
+        ui.add_space(8.0);
+        let current = draft.compile.kotlin_decompiler;
+        egui::ComboBox::from_id_salt("kotlin_decompiler_combo")
+            .selected_text(current.label())
+            .width(180.0)
+            .show_ui(ui, |ui| {
+                for &mode in KotlinDecompilerKind::ALL {
+                    if ui.selectable_label(current == mode, mode.label()).clicked() {
+                        draft.compile.kotlin_decompiler = mode;
+                        changed = true;
+                    }
+                }
+            });
+    });
+    paint_section_hint(
+        ui,
+        st,
+        t!("settings.kotlin_decompiler_hint").to_string(),
+    );
+    ui.add_space(8.0);
+    changed |= toggle(
+        ui,
+        st,
+        &t!("settings.kotlin_skip_metadata_version_check"),
+        &mut draft.compile.kotlin_skip_metadata_version_check,
+    );
+    paint_section_hint(
+        ui,
+        st,
+        t!("settings.kotlin_skip_metadata_version_check_hint").to_string(),
+    );
+    ui.add_space(10.0);
+    section_header(ui, st, &t!("settings.compile_classpath"));
+    paint_compile_classpath_hint(ui, st);
+    changed |= render_classpath_actions(ui, st, &mut draft.compile.classpath_entries);
+    changed |= render_classpath_entries(ui, st, &mut draft.compile.classpath_entries);
+    changed
+}
+
+fn paint_compile_classpath_hint(ui: &mut egui::Ui, st: &SettingsTheme) {
+    paint_section_hint(ui, st, t!("settings.compile_classpath_hint").to_string());
+}
+
+fn render_classpath_actions(
+    ui: &mut egui::Ui,
+    st: &SettingsTheme,
+    entries: &mut Vec<String>,
+) -> bool {
+    let mut changed = false;
+    let fbt = theme::flat_button_theme(theme::TEXT_SECONDARY);
+    ui.horizontal(|ui| {
+        ui.add_space(16.0);
+        if ui
+            .add(
+                FlatButton::new(&t!("settings.classpath_add_jar"), &fbt)
+                    .font_size(11.5)
+                    .min_size(egui::vec2(0.0, 22.0)),
+            )
+            .clicked()
+        {
+            if let Some(paths) = rfd::FileDialog::new()
+                .add_filter(&*t!("layout.java_archive"), &["jar", "zip", "war", "ear"])
+                .pick_files()
+            {
+                changed |= add_classpath_entries(entries, paths);
+            }
+        }
+        if ui
+            .add(
+                FlatButton::new(&t!("settings.classpath_add_dir"), &fbt)
+                    .font_size(11.5)
+                    .min_size(egui::vec2(0.0, 22.0)),
+            )
+            .clicked()
+        {
+            if let Some(path) = rfd::FileDialog::new().pick_folder() {
+                changed |= add_classpath_entries(entries, [path]);
+            }
+        }
+        ui.label(
+            egui::RichText::new(t!("settings.classpath_count", count = entries.len()).to_string())
+                .size(11.0)
+                .color(st.text_secondary),
+        );
+    });
+    changed
+}
+
+fn add_classpath_entries<I, P>(entries: &mut Vec<String>, paths: I) -> bool
+where
+    I: IntoIterator<Item = P>,
+    P: AsRef<Path>,
+{
+    let mut changed = false;
+    for path in paths {
+        let path = path.as_ref().to_string_lossy().into_owned();
+        if !path.trim().is_empty() && !entries.iter().any(|p| p == &path) {
+            entries.push(path);
+            changed = true;
+        }
+    }
+    changed
+}
+
+fn elide_middle(ui: &egui::Ui, text: &str, font: egui::FontId, max_width: f32) -> String {
+    let fits = |s: &str| {
+        ui.painter()
+            .layout_no_wrap(s.to_owned(), font.clone(), egui::Color32::WHITE)
+            .rect
+            .width()
+            <= max_width
+    };
+    if max_width <= 0.0 || fits(text) {
+        return text.to_owned();
+    }
+    let chars = text.chars().collect::<Vec<_>>();
+    if chars.len() <= 3 {
+        return "…".to_owned();
+    }
+    let mut keep = chars.len().saturating_sub(1);
+    while keep > 1 {
+        let head = keep / 2;
+        let tail = keep - head;
+        let candidate = format!(
+            "{}…{}",
+            chars[..head].iter().collect::<String>(),
+            chars[chars.len() - tail..].iter().collect::<String>()
+        );
+        if fits(&candidate) {
+            return candidate;
+        }
+        keep -= 1;
+    }
+    "…".to_owned()
+}
+
+fn render_classpath_entries(
+    ui: &mut egui::Ui,
+    st: &SettingsTheme,
+    entries: &mut Vec<String>,
+) -> bool {
+    let mut changed = false;
+    let fbt = theme::flat_button_theme(theme::TEXT_SECONDARY);
+    let mut remove = None;
+    if entries.is_empty() {
+        paint_cache_message(ui, st, &t!("settings.classpath_empty").to_string());
+        return false;
+    }
+    for (idx, entry) in entries.iter().enumerate() {
+        let avail_w = ui.available_width();
+        let row_height = 30.0;
+        let (rect, resp) =
+            ui.allocate_exact_size(egui::vec2(avail_w, row_height), egui::Sense::hover());
+        if resp.hovered() {
+            ui.painter().rect_filled(rect, 0.0, st.bg_hover);
+        }
+        let exists = Path::new(entry).exists();
+        let color = if exists { st.text_primary } else { st.text_muted };
+        let left = rect.left() + 16.0;
+        let mid_y = rect.center().y;
+        let btn_w = 22.0;
+        let btn_rect = egui::Rect::from_center_size(
+            egui::pos2(rect.right() - 16.0 - btn_w * 0.5, mid_y),
+            egui::vec2(btn_w, btn_w),
+        );
+        let missing_w = if exists { 0.0 } else { 48.0 };
+        let text_right = (btn_rect.left() - 8.0 - missing_w).max(left + 24.0);
+        let text_rect = egui::Rect::from_min_max(
+            egui::pos2(left, rect.top()),
+            egui::pos2(text_right, rect.bottom()),
+        );
+        let display_entry = elide_middle(
+            ui,
+            entry,
+            egui::FontId::monospace(11.0),
+            text_rect.width(),
+        );
+        ui.painter().text(
+            egui::pos2(left, mid_y),
+            egui::Align2::LEFT_CENTER,
+            display_entry,
+            egui::FontId::monospace(11.0),
+            color,
+        );
+        if !exists {
+            ui.painter().text(
+                egui::pos2(btn_rect.left() - 8.0, mid_y),
+                egui::Align2::RIGHT_CENTER,
+                t!("settings.classpath_missing").to_string(),
+                egui::FontId::proportional(10.5),
+                st.text_muted,
+            );
+        }
+        let mut btn_ui = ui.new_child(
+            egui::UiBuilder::new()
+                .max_rect(btn_rect)
+                .id_salt(egui::Id::new("classpath_del").with(idx)),
+        );
+        if btn_ui
+            .add(
+                FlatButton::new(codicon::CLOSE, &fbt)
+                    .font_size(12.0)
+                    .font_family(codicon::family())
+                    .min_size(egui::vec2(btn_w, btn_w)),
+            )
+            .clicked()
+        {
+            remove = Some(idx);
+        }
+    }
+    if let Some(idx) = remove {
+        entries.remove(idx);
+        changed = true;
+    }
     changed
 }
 
@@ -455,11 +930,7 @@ fn render_cache(
         &mut draft.cache.decompiled_dir,
         &t!("settings.cache_dir_hint"),
         &t!("settings.browse"),
-        || {
-            rfd::FileDialog::new()
-                .pick_folder()
-                .map(|p| p.to_string_lossy().into_owned())
-        },
+        pick_folder_string,
     );
     ui.add_space(6.0);
     paint_cache_root_hint(ui, st);
@@ -534,15 +1005,7 @@ fn paint_cache_root_hint(ui: &mut egui::Ui, st: &SettingsTheme) {
         Ok(path) => t!("settings.cache_current_root", path = path.display()).to_string(),
         Err(error) => t!("settings.cache_list_failed", error = error.to_string()).to_string(),
     };
-    ui.horizontal(|ui| {
-        ui.add_space(16.0);
-        ui.label(
-            egui::RichText::new(text)
-                .size(11.0)
-                .color(st.text_secondary)
-                .monospace(),
-        );
-    });
+    paint_path_hint_line(ui, st, text);
 }
 
 fn paint_cache_actions(ui: &mut egui::Ui, st: &SettingsTheme, state: &SettingsPanelState) {
@@ -615,8 +1078,13 @@ fn paint_cache_entry(ui: &mut egui::Ui, st: &SettingsTheme, entry: &CacheEntry, 
         st.text_primary,
     );
     // 次级信息：大小 + hash
+    let mode_text = match entry.kotlin_mode {
+        decompiler::KotlinDecompilerMode::Vineflower => t!("settings.kotlin_decompiler_vineflower_short").to_string(),
+        decompiler::KotlinDecompilerMode::Java => t!("settings.kotlin_decompiler_java_short").to_string(),
+    };
     let meta_text = format!(
-        "{}  {}",
+        "{}  {}  {}",
+        &mode_text,
         format_optional_bytes(entry.size_bytes),
         short_hash(&entry.hash),
     );
@@ -636,7 +1104,7 @@ fn paint_cache_entry(ui: &mut egui::Ui, st: &SettingsTheme, entry: &CacheEntry, 
     let mut btn_ui = ui.new_child(
         egui::UiBuilder::new()
             .max_rect(btn_rect)
-            .id_salt(egui::Id::new("cache_del").with(&entry.hash)),
+            .id_salt(egui::Id::new("cache_del").with(entry.dir.display().to_string())),
     );
     let delete = btn_ui.add_enabled(
         !cache_busy,
@@ -649,8 +1117,8 @@ fn paint_cache_entry(ui: &mut egui::Ui, st: &SettingsTheme, entry: &CacheEntry, 
         queue_settings_action(
             ui.ctx(),
             SettingsAction::DeleteCache {
-                hash: entry.hash.clone(),
-                label: entry.jar_name.clone(),
+                dir: entry.dir.clone(),
+                label: format!("{} ({})", entry.jar_name.as_str(), mode_text),
             },
         );
     }

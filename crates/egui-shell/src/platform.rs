@@ -48,7 +48,7 @@ pub fn viewport(title: &str, size: [f32; 2]) -> egui::ViewportBuilder {
 #[cfg(target_os = "macos")]
 pub fn set_traffic_lights() {
     use objc2::msg_send;
-    use objc2::runtime::{AnyObject, Bool};
+    use objc2::runtime::AnyObject;
 
     #[repr(C)]
     struct NSPoint {

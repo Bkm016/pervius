@@ -52,6 +52,27 @@ fn resolve_java_exe(root: &Path) -> PathBuf {
     root.join("bin").join(exe_name)
 }
 
+/// 按给定配置解析 java 可执行文件（空值表示使用系统 JAVA_HOME / PATH）。
+pub fn resolve_java_path(configured: &str) -> Result<PathBuf, BridgeError> {
+    let configured = configured.trim();
+    if !configured.is_empty() {
+        let java = resolve_java_exe(Path::new(configured));
+        if java.exists() {
+            return Ok(java);
+        }
+        return Err(BridgeError::JavaNotFound(java));
+    }
+    // 系统环境变量
+    if let Ok(java_home) = std::env::var("JAVA_HOME") {
+        let java = resolve_java_exe(Path::new(&java_home));
+        if java.exists() {
+            return Ok(java);
+        }
+    }
+    // PATH 中探测
+    find_java_in_path()
+}
+
 /// 定位 java 可执行文件
 ///
 /// 查找顺序：
@@ -59,27 +80,12 @@ fn resolve_java_exe(root: &Path) -> PathBuf {
 /// 2. 系统 JAVA_HOME 环境变量
 /// 3. PATH 中探测（`where java` / `which java`）
 pub fn find_java() -> Result<PathBuf, BridgeError> {
-    // 1. 自定义路径
     let custom = CUSTOM_JAVA_HOME
         .lock()
         .unwrap_or_else(|p| p.into_inner())
-        .clone();
-    if let Some(ref path) = custom {
-        let java = resolve_java_exe(Path::new(path));
-        if java.exists() {
-            return Ok(java);
-        }
-        return Err(BridgeError::JavaNotFound(java));
-    }
-    // 2. 系统环境变量
-    if let Ok(java_home) = std::env::var("JAVA_HOME") {
-        let java = resolve_java_exe(Path::new(&java_home));
-        if java.exists() {
-            return Ok(java);
-        }
-    }
-    // 3. PATH 中探测
-    find_java_in_path()
+        .clone()
+        .unwrap_or_default();
+    resolve_java_path(&custom)
 }
 
 /// 通过 PATH 环境变量查找 java
@@ -118,6 +124,22 @@ tabookit::class! {
         let java = find_java()?;
         let mut cmd = Command::new(java);
         cmd.arg("-jar").arg(jar);
+        #[cfg(windows)]
+        cmd.creation_flags(0x08000000); // CREATE_NO_WINDOW
+        Ok(Self { cmd })
+    }
+
+    /// 创建 `java -cp <jars> <main-class>` 命令（多 JAR 使用平台分隔符）
+    pub fn with_classpath(jars: &[PathBuf], main_class: &str) -> Result<Self, BridgeError> {
+        let java = find_java()?;
+        let mut cmd = Command::new(java);
+        let sep = if cfg!(windows) { ";" } else { ":" };
+        let cp = jars
+            .iter()
+            .map(|p| p.display().to_string())
+            .collect::<Vec<_>>()
+            .join(sep);
+        cmd.arg("-cp").arg(cp).arg(main_class);
         #[cfg(windows)]
         cmd.creation_flags(0x08000000); // CREATE_NO_WINDOW
         Ok(Self { cmd })

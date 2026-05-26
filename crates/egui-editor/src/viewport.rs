@@ -68,6 +68,16 @@ struct ViewportTextBuffer<'a> {
     window_end_byte: usize,
 }
 
+/// 大文本视窗只读缓冲区
+struct ReadonlyViewportTextBuffer<'a> {
+    /// 完整文本
+    full_text: &'a str,
+    /// 窗口起始字节偏移
+    window_start_byte: usize,
+    /// 窗口结束字节偏移（不含）
+    window_end_byte: usize,
+}
+
 impl egui::TextBuffer for ViewportTextBuffer<'_> {
     fn is_mutable(&self) -> bool {
         true
@@ -111,6 +121,26 @@ impl egui::TextBuffer for ViewportTextBuffer<'_> {
     }
 }
 
+impl egui::TextBuffer for ReadonlyViewportTextBuffer<'_> {
+    fn is_mutable(&self) -> bool {
+        false
+    }
+
+    fn as_str(&self) -> &str {
+        &self.full_text[self.window_start_byte..self.window_end_byte]
+    }
+
+    fn insert_text(&mut self, _text: &str, _char_index: usize) -> usize {
+        0
+    }
+
+    fn delete_char_range(&mut self, _char_range: Range<usize>) {}
+
+    fn type_id(&self) -> std::any::TypeId {
+        std::any::TypeId::of::<()>()
+    }
+}
+
 /// 视窗模式可编辑代码视图
 ///
 /// 仅布局光标附近的文本窗口，将大文本的布局/渲染/交互开销从 O(n) 降至 O(窗口大小)。
@@ -124,6 +154,7 @@ pub(crate) fn code_view_editable_viewport(
     theme: &CodeViewTheme,
     cache: &mut Option<EditableLayoutCache>,
     _scroll_to_line: &mut Option<usize>,
+    editable: bool,
 ) -> bool {
     let code_font = egui::FontId::monospace(theme.code_font_size);
     // 全文统计信息缓存：仅在文本长度变更时重新计算（避免每帧 O(n)）
@@ -207,12 +238,6 @@ pub(crate) fn code_view_editable_viewport(
     let word_ref = local_word_ranges.as_slice();
     let word_gen = cache.as_ref().map_or(0, |c| c.word_gen);
 
-    let mut viewport_buf = ViewportTextBuffer {
-        full_text: text,
-        window_start_byte: win_start_byte,
-        window_end_byte: win_end_byte,
-    };
-
     // layouter: 窗口文本很小（~6KB），通过 rebuild_galley 全量布局
     let mut layouter =
         |ui: &egui::Ui, text_buf: &dyn egui::TextBuffer, _wrap_width: f32| -> Arc<egui::Galley> {
@@ -245,31 +270,65 @@ pub(crate) fn code_view_editable_viewport(
     let mut out_galley: Option<std::sync::Arc<egui::Galley>> = None;
     let mut out_galley_pos = egui::Pos2::ZERO;
 
-    ui.horizontal_top(|ui| {
-        ui.add_space(gutter_w + GUTTER_PAD + TEXT_PAD_LEFT);
-        let output =
-            code_text_edit(&mut viewport_buf, id, code_font.clone(), &mut layouter).show(ui);
-        galley_y = output.galley_pos.y;
-        out_galley = Some(output.galley.clone());
-        out_galley_pos = output.galley_pos;
-        changed = output.response.changed();
-        if let Some(cr) = output.cursor_range {
-            new_cursor_char = cr.primary.index + win_start_char;
-            selection_secondary_global = cr.secondary.index + win_start_char;
-        }
-        if output.response.dragged() {
-            let (ed, wd) = detect_edge_scroll(&output.response, ui);
-            edge_scroll_delta = ed;
-            wheel_delta = wd;
-        }
-    });
+    let mut text_len_after_edit = text.len();
+    let win_text_start = win_start_byte;
+    let mut win_text_end = win_end_byte;
+    if editable {
+        let mut viewport_buf = ViewportTextBuffer {
+            full_text: text,
+            window_start_byte: win_start_byte,
+            window_end_byte: win_end_byte,
+        };
+        ui.horizontal_top(|ui| {
+            ui.add_space(gutter_w + GUTTER_PAD + TEXT_PAD_LEFT);
+            let output = code_text_edit(&mut viewport_buf, id, code_font.clone(), &mut layouter)
+                .show(ui);
+            galley_y = output.galley_pos.y;
+            out_galley = Some(output.galley.clone());
+            out_galley_pos = output.galley_pos;
+            changed = output.response.changed();
+            if let Some(cr) = output.cursor_range {
+                new_cursor_char = cr.primary.index + win_start_char;
+                selection_secondary_global = cr.secondary.index + win_start_char;
+            }
+            if output.response.dragged() {
+                let (ed, wd) = detect_edge_scroll(&output.response, ui);
+                edge_scroll_delta = ed;
+                wheel_delta = wd;
+            }
+        });
+        text_len_after_edit = viewport_buf.full_text.len();
+        win_text_end = viewport_buf.window_end_byte.min(text_len_after_edit);
+    } else {
+        let mut viewport_buf = ReadonlyViewportTextBuffer {
+            full_text: text.as_str(),
+            window_start_byte: win_start_byte,
+            window_end_byte: win_end_byte,
+        };
+        ui.horizontal_top(|ui| {
+            ui.add_space(gutter_w + GUTTER_PAD + TEXT_PAD_LEFT);
+            let output = code_text_edit(&mut viewport_buf, id, code_font.clone(), &mut layouter)
+                .show(ui);
+            galley_y = output.galley_pos.y;
+            out_galley = Some(output.galley.clone());
+            out_galley_pos = output.galley_pos;
+            if let Some(cr) = output.cursor_range {
+                new_cursor_char = cr.primary.index + win_start_char;
+                selection_secondary_global = cr.secondary.index + win_start_char;
+            }
+            if output.response.dragged() {
+                let (ed, wd) = detect_edge_scroll(&output.response, ui);
+                edge_scroll_delta = ed;
+                wheel_delta = wd;
+            }
+        });
+    }
     apply_scroll_delta(ui, edge_scroll_delta, wheel_delta);
 
     // 绘制选中同名高亮（跳过选区自身）
     // viewport 使用窗口本地偏移 + 窗口文本
     if let Some(g) = out_galley.as_ref() {
-        let win_text =
-            &viewport_buf.full_text[win_start_byte..win_end_byte.min(viewport_buf.full_text.len())];
+        let win_text = &text[win_text_start..win_text_end.min(text.len())];
         paint_word_highlight_overlay(
             ui,
             g,
@@ -282,10 +341,8 @@ pub(crate) fn code_view_editable_viewport(
         );
     }
 
-    // 编辑后检查是否仍需视窗模式（viewport_buf 的最后一次使用）
-    let is_still_viewport = !changed || viewport_buf.full_text.len() > VIEWPORT_TEXT_LEN;
-    // 释放 viewport_buf 对 text 的借用
-    drop(viewport_buf);
+    // 编辑后检查是否仍需视窗模式
+    let is_still_viewport = !editable || !changed || text_len_after_edit > VIEWPORT_TEXT_LEN;
 
     // 选中同名字段高亮：从选区提取词，查找全文匹配
     let new_word = extract_highlight_word(text, new_cursor_char, selection_secondary_global);
@@ -311,7 +368,7 @@ pub(crate) fn code_view_editable_viewport(
         .filter(|&&b| b == b'\n')
         .count()
         + 1;
-    let window_text = &text[win_start_byte..win_end_byte];
+    let window_text = &text[win_start_byte..win_text_end.min(text.len())];
     let window_line_count = window_text
         .as_bytes()
         .iter()

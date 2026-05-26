@@ -21,7 +21,7 @@ pub fn classify(node: &tree_sitter::Node, _source: &[u8]) -> Option<TokenKind> {
                     .child_by_field_name("key")
                     .is_some_and(|n| n.id() == node.id())
             {
-                return Some(TokenKind::Type);
+                return Some(TokenKind::Constant);
             }
             None
         }

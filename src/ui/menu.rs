@@ -25,6 +25,8 @@ tabookit::class! {
         is_decompiled: bool,
         /// 没有正在进行的后台任务（反编译/导出）
         is_idle: bool,
+        /// JAR 内存中存在已修改条目
+        has_jar_changes: bool,
     }
 
     fn from_app(app: &mut App) -> Self {
@@ -34,7 +36,17 @@ tabookit::class! {
             pervius_java_bridge::decompiler::is_cached(&j.hash)
         });
         let is_idle = !app.workspace.is_decompiling() && app.exporting.is_none();
-        Self { has_jar, has_tab, is_decompiled, is_idle }
+        let has_jar_changes = app
+            .workspace
+            .jar()
+            .is_some_and(|jar| jar.has_modified_entries());
+        Self {
+            has_jar,
+            has_tab,
+            is_decompiled,
+            is_idle,
+            has_jar_changes,
+        }
     }
 }
 

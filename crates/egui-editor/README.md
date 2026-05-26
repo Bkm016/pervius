@@ -2,15 +2,15 @@
 
 基于 [egui](https://github.com/emilk/egui) 的语法高亮代码查看器与查找栏组件。
 
-提供可复用、主题参数化的代码查看/编辑体验，包含 tree-sitter 语法高亮引擎、全文搜索算法和浮动查找栏。
+提供可复用、主题参数化的代码查看/编辑体验，包含 tree-sitter 语法高亮引擎、全文搜索算法、浮动查找栏和大文本视窗渲染。
 
 ## 模块
 
 | 模块 | 说明 |
 |---|---|
-| `highlight` | 基于 tree-sitter 的语法高亮引擎，支持 10 种语言（Java、Kotlin、XML、YAML、JSON、HTML、SQL、Bytecode、Properties、Plain） |
+| `highlight` | 基于 tree-sitter 的语法高亮引擎，支持 10 种语言（Java、Kotlin、XML、YAML、JSON、HTML、SQL、Bytecode、Properties、Plain），并补齐 Kotlin/JVM `$` 与反引号特殊方法名高亮 |
 | `code_view` | 代码视图渲染 — 行号栏、语法高亮文本、搜索匹配绘制，支持只读和可编辑模式 |
-| `search` | 搜索算法 — 纯文本 / 正则 / 全词匹配 / 大小写敏感，以及十六进制字节搜索 |
+| `search` | 搜索算法 — 纯文本 / 正则 / 全词匹配 / 大小写敏感，以及十六进制字节搜索；全词匹配会将 `$` 视作 JVM 名称字符 |
 | `find_bar` | 浮动查找栏 overlay 组件，支持匹配导航和模式切换 |
 | `theme` | 主题结构体（`SyntaxTheme`、`CodeViewTheme`、`FindBarTheme`），完整的配色 / 图标 / 标签参数化 |
 

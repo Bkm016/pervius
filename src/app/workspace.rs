@@ -30,6 +30,12 @@ pub(crate) struct LoadingState {
     pub progress: Arc<LoadProgress>,
     /// 后台加载任务
     pub task: Task<Result<JarArchive, BridgeError>>,
+    /// 已完成的 JAR 加载结果，等待资源准备完成后再继续。
+    pub jar_result: Option<Result<JarArchive, BridgeError>>,
+    /// 项目基础资源准备任务（Java / Vineflower 等）。
+    pub resource_task: Task<Result<(), BridgeError>>,
+    /// 基础资源是否已准备完成。
+    pub resources_ready: bool,
 }
 
 /// JAR 已加载后的工作状态
@@ -50,6 +56,8 @@ pub(crate) struct LoadedState {
     pub search_index_total: u32,
     /// 类名解析器（Shift+Click 导航用）
     pub class_resolver: ClassResolver,
+    /// 当前打开项目的临时编译 classpath 条目。
+    pub compile_classpath_entries: Vec<std::path::PathBuf>,
 }
 
 /// 反编译生命周期阶段
@@ -134,6 +142,7 @@ impl LoadedState {
             search_index_progress: None,
             search_index_total: 0,
             class_resolver,
+            compile_classpath_entries: Vec::new(),
         }
     }
 }

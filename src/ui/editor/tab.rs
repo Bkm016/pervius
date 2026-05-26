@@ -7,6 +7,7 @@ use egui_editor::highlight::{self, Language, Span};
 use egui_editor::{EditableLayoutCache, LayoutCache};
 use egui_hex_view::HexViewState;
 use pervius_java_bridge::class_structure::ClassStructure;
+use pervius_java_bridge::compiler::CompileDiagnostic;
 use rust_i18n::t;
 use std::path::{Path, PathBuf};
 
@@ -27,6 +28,13 @@ tabookit::class! {
     pub fn line_count(&self) -> usize {
         self.line_starts.len()
     }
+}
+
+/// 反编译源码编辑模式
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum SourceEditMode {
+    Locked,
+    Unlocked,
 }
 
 /// 字节码面板导航选中状态
@@ -58,6 +66,14 @@ tabookit::class! {
         /// class 文件版本信息（如 "Java 21 (class 65.0)"）
         pub class_info: Option<String>,
         pub is_modified: bool,
+        /// class 反编译源码编辑模式
+        pub source_edit: SourceEditMode,
+        /// 反编译源码是否有未保存修改（独立于结构化编辑）
+        pub source_modified: bool,
+        /// 进入源码编辑模式时的快照，供重置使用
+        pub original_source: String,
+        /// 最近一次编译诊断
+        pub compile_diagnostics: Vec<CompileDiagnostic>,
         /// Hex 视图交互状态
         pub hex_state: HexViewState,
         /// 反编译视图预处理数据
@@ -105,7 +121,7 @@ tabookit::class! {
             title: title.into(),
             entry_path: Some(entry_path.into()),
             standalone_path: None,
-            decompiled,
+            decompiled: decompiled.clone(),
             raw_bytes,
             language,
             active_view: ActiveView::Hex,
@@ -113,6 +129,10 @@ tabookit::class! {
             is_text: false,
             class_info,
             is_modified: false,
+            source_edit: SourceEditMode::Locked,
+            source_modified: false,
+            original_source: decompiled.clone(),
+            compile_diagnostics: Vec::new(),
             hex_state: HexViewState::default(),
             decompiled_data: dec_data,
             decompiled_line_mapping: Vec::new(),
@@ -139,7 +159,7 @@ tabookit::class! {
             title: title.into(),
             entry_path: Some(entry_path.into()),
             standalone_path: None,
-            decompiled: text,
+            decompiled: text.clone(),
             raw_bytes,
             language,
             active_view: ActiveView::Decompiled,
@@ -147,6 +167,10 @@ tabookit::class! {
             is_text: true,
             class_info: None,
             is_modified: false,
+            source_edit: SourceEditMode::Locked,
+            source_modified: false,
+            original_source: text.clone(),
+            compile_diagnostics: Vec::new(),
             hex_state: HexViewState::default(),
             decompiled_data: dec_data,
             decompiled_line_mapping: Vec::new(),
@@ -178,6 +202,10 @@ tabookit::class! {
             is_text: false,
             class_info: None,
             is_modified: false,
+            source_edit: SourceEditMode::Locked,
+            source_modified: false,
+            original_source: String::new(),
+            compile_diagnostics: Vec::new(),
             hex_state: HexViewState::default(),
             decompiled_data: CodeData::new("", vec![]),
             decompiled_line_mapping: Vec::new(),
@@ -199,9 +227,13 @@ tabookit::class! {
         line_mapping: Vec<Option<u32>>,
     ) {
         self.decompiled_data = CodeData::new(&source, highlight::compute_spans(&source, lang));
+        self.original_source = source.clone();
         self.decompiled = source;
         self.language = lang;
         self.decompiled_line_mapping = line_mapping;
+        if !self.source_modified {
+            self.compile_diagnostics.clear();
+        }
         self.layout_cache = None;
         self.editable_layout_cache = None;
     }
@@ -218,6 +250,31 @@ tabookit::class! {
         } else {
             ""
         }
+    }
+
+    /// 是否正在编辑 class 反编译源码
+    pub fn is_source_unlocked(&self) -> bool {
+        self.source_edit == SourceEditMode::Unlocked
+    }
+
+    /// 进入源码编辑模式
+    pub fn unlock_source_edit(&mut self) {
+        self.source_edit = SourceEditMode::Unlocked;
+        self.original_source = self.decompiled.clone();
+        self.compile_diagnostics.clear();
+    }
+
+    /// 锁定源码编辑模式
+    pub fn lock_source_edit(&mut self) {
+        self.source_edit = SourceEditMode::Locked;
+    }
+
+    /// 丢弃源码编辑改动
+    pub fn discard_source_changes(&mut self) {
+        self.decompiled = self.original_source.clone();
+        self.source_modified = false;
+        self.compile_diagnostics.clear();
+        self.refresh_decompiled_data();
     }
 
     /// 重建反编译/文本视图的高亮数据（文本编辑后调用）

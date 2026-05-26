@@ -10,12 +10,22 @@ use rust_i18n::t;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
+/// JAR 写出模式
+pub(crate) enum JarWriteMode {
+    /// 另存为新的 JAR 文件
+    ExportCopy,
+    /// 覆盖当前打开的源 JAR 文件
+    OverwriteSource,
+}
+
 /// JAR 后台导出状态
 pub(crate) struct ExportingState {
     /// 目标文件路径（用于完成后显示）
     pub dest: PathBuf,
     /// 已修改条目数（用于完成后显示）
     pub modified_count: usize,
+    /// 写出模式
+    pub mode: JarWriteMode,
     /// 导出进度
     pub progress: Arc<LoadProgress>,
     /// 后台导出任务
@@ -23,6 +33,28 @@ pub(crate) struct ExportingState {
 }
 
 impl App {
+    fn start_jar_write(
+        &mut self,
+        dest: PathBuf,
+        modified_count: usize,
+        snapshot: Vec<(String, Vec<u8>)>,
+        mode: JarWriteMode,
+    ) {
+        let progress = Arc::new(LoadProgress::new());
+        let p = progress.clone();
+        let out = dest.clone();
+        let task = Task::spawn(move || {
+            pervius_java_bridge::jar::write_jar(&snapshot, &out, &p).map_err(|e| e.to_string())
+        });
+        self.exporting = Some(ExportingState {
+            dest,
+            modified_count,
+            mode,
+            progress,
+            task,
+        });
+    }
+
     /// 导出修改后的 JAR 到用户选择的路径
     ///
     /// 在主线程快照条目数据，然后在后台线程写出 ZIP，
@@ -56,18 +88,33 @@ impl App {
         };
         let snapshot = jar.snapshot_entries();
         let modified_count = jar.modified_count();
-        let progress = Arc::new(LoadProgress::new());
-        let p = progress.clone();
-        let out = dest.clone();
-        let task = Task::spawn(move || {
-            pervius_java_bridge::jar::write_jar(&snapshot, &out, &p).map_err(|e| e.to_string())
-        });
-        self.exporting = Some(ExportingState {
-            dest,
-            modified_count,
-            progress,
-            task,
-        });
+        self.start_jar_write(dest, modified_count, snapshot, JarWriteMode::ExportCopy);
+    }
+
+    /// 保存并覆盖当前打开的源 JAR 文件
+    pub fn save_jar_overwrite_source(&mut self) {
+        let Some(jar) = self.workspace.jar() else {
+            self.toasts.warning(t!("layout.export_no_jar"));
+            return;
+        };
+        if self.exporting.is_some() {
+            self.toasts.warning(t!("layout.save_source_in_progress"));
+            return;
+        }
+        let unsaved = self.layout.editor.unsaved_paths();
+        if !unsaved.is_empty() {
+            self.toasts
+                .warning(t!("layout.export_unsaved", count = unsaved.len()));
+            return;
+        }
+        let modified_count = jar.modified_count();
+        if modified_count == 0 {
+            self.toasts.info(t!("layout.save_source_no_changes"));
+            return;
+        }
+        let dest = jar.path.clone();
+        let snapshot = jar.snapshot_entries();
+        self.start_jar_write(dest, modified_count, snapshot, JarWriteMode::OverwriteSource);
     }
 
     /// 轮询后台 JAR 导出是否完成
@@ -83,24 +130,55 @@ impl App {
                 return;
             }
         };
-        let dest = self.exporting.as_ref().unwrap().dest.clone();
-        let modified = self.exporting.as_ref().unwrap().modified_count;
-        self.exporting = None;
+        let state = self.exporting.take().unwrap();
+        let dest = state.dest;
+        let modified = state.modified_count;
+        let mode = state.mode;
         match result {
             Ok(count) => {
                 let display = dest.to_string_lossy();
-                self.toasts.info(t!(
-                    "layout.export_jar_complete",
-                    path = display,
-                    count = count,
-                    modified = modified
-                ));
-                log::info!("Exported JAR ({count} entries, {modified} modified) to {display}");
+                match mode {
+                    JarWriteMode::ExportCopy => {
+                        self.toasts.info(t!(
+                            "layout.export_jar_complete",
+                            path = display,
+                            count = count,
+                            modified = modified
+                        ));
+                        log::info!(
+                            "Exported JAR ({count} entries, {modified} modified) to {display}"
+                        );
+                    }
+                    JarWriteMode::OverwriteSource => {
+                        if let Some(jar) = self.workspace.jar_mut() {
+                            if let Err(error) = jar.commit_modified_from_file(&dest) {
+                                log::warn!("Failed to refresh saved source JAR metadata: {error}");
+                                jar.clear_modified();
+                            }
+                        }
+                        self.toasts.info(t!(
+                            "layout.save_source_complete",
+                            path = display,
+                            count = count,
+                            modified = modified
+                        ));
+                        log::info!(
+                            "Saved source JAR ({count} entries, {modified} modified) to {display}"
+                        );
+                    }
+                }
             }
-            Err(e) => {
-                self.toasts.error(t!("layout.export_failed", error = e));
-                log::error!("Export JAR failed: {e}");
-            }
+            Err(e) => match mode {
+                JarWriteMode::ExportCopy => {
+                    self.toasts.error(t!("layout.export_failed", error = e));
+                    log::error!("Export JAR failed: {e}");
+                }
+                JarWriteMode::OverwriteSource => {
+                    self.toasts
+                        .error(t!("layout.save_source_failed", error = e));
+                    log::error!("Save source JAR failed: {e}");
+                }
+            },
         }
     }
 

@@ -5,6 +5,7 @@
 mod bar;
 mod class_info;
 mod decompile_progress;
+mod download_progress;
 mod export_progress;
 mod index_progress;
 mod modified_count;
@@ -38,13 +39,22 @@ impl App {
         self.layout
             .status_bar
             .sync_modified_count(saved_paths, unsaved_paths);
+        // 外部工具下载进度（英文固定文案）
+        let download_info = pervius_java_bridge::environment::download_progress();
+        self.layout
+            .status_bar
+            .sync_download(download_info.clone());
         // 反编译进度
         let re_decompile_name = self
             .workspace
             .loaded()
             .and_then(|s| s.pending_re_decompile.as_ref())
             .map(|(name, _)| name.as_str());
-        if let Some(name) = re_decompile_name {
+        if !self.pending_compiles.is_empty() {
+            let name = &self.pending_compiles.last().unwrap().entry_path;
+            let short = name.rsplit('/').next().unwrap_or(name);
+            self.layout.status_bar.sync_compile_single(short);
+        } else if let Some(name) = re_decompile_name {
             self.layout.status_bar.sync_decompile_single(name);
         } else if !self.pending_decompiles.is_empty() {
             let name = &self.pending_decompiles.last().unwrap().0;
@@ -83,8 +93,11 @@ impl App {
         });
         self.layout.status_bar.sync_index(index_info);
         // 有后台任务运行时持续刷新
-        let has_bg_work = self.workspace.is_decompiling()
+        let has_bg_work = download_info.is_some()
+            || self.pending_vineflower_prepare.is_some()
+            || self.workspace.is_decompiling()
             || !self.pending_decompiles.is_empty()
+            || !self.pending_compiles.is_empty()
             || self
                 .workspace
                 .loaded()
