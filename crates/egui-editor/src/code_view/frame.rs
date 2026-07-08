@@ -2,7 +2,7 @@
 //!
 //! @author sky
 
-use super::gutter::{paint_line_numbers, GUTTER_PAD, TEXT_PAD_LEFT};
+use super::gutter::{GUTTER_PAD, TEXT_PAD_LEFT, paint_line_numbers};
 use super::layout::{extract_highlight_word, paint_word_highlight_overlay};
 use super::scroll::{apply_scroll_delta, detect_edge_scroll};
 use super::text_edit::code_text_edit;

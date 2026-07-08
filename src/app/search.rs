@@ -2,13 +2,13 @@
 //!
 //! @author sky
 
-use super::workspace::Workspace;
 use super::App;
+use super::workspace::Workspace;
 use crate::task::{Poll, Pollable, Task};
 use crate::ui::search::index::{self, IndexBuildRequest};
 use std::collections::HashMap;
-use std::sync::atomic::AtomicU32;
 use std::sync::Arc;
+use std::sync::atomic::AtomicU32;
 
 impl App {
     /// 轮询搜索索引构建结果（每帧调用）

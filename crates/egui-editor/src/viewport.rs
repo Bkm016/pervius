@@ -7,9 +7,9 @@
 //! @author sky
 
 use crate::code_view::{
-    apply_scroll_delta, byte_offset_at_char, code_text_edit, detect_edge_scroll,
-    extract_highlight_word, hash_text, line_number_width, paint_line_numbers,
-    paint_word_highlight_overlay, rebuild_galley, EditableLayoutCache, GUTTER_PAD, TEXT_PAD_LEFT,
+    EditableLayoutCache, GUTTER_PAD, TEXT_PAD_LEFT, apply_scroll_delta, byte_offset_at_char,
+    code_text_edit, detect_edge_scroll, extract_highlight_word, hash_text, line_number_width,
+    paint_line_numbers, paint_word_highlight_overlay, rebuild_galley,
 };
 use crate::highlight::Language;
 use crate::search::FindMatch;
@@ -281,8 +281,8 @@ pub(crate) fn code_view_editable_viewport(
         };
         ui.horizontal_top(|ui| {
             ui.add_space(gutter_w + GUTTER_PAD + TEXT_PAD_LEFT);
-            let output = code_text_edit(&mut viewport_buf, id, code_font.clone(), &mut layouter)
-                .show(ui);
+            let output =
+                code_text_edit(&mut viewport_buf, id, code_font.clone(), &mut layouter).show(ui);
             galley_y = output.galley_pos.y;
             out_galley = Some(output.galley.clone());
             out_galley_pos = output.galley_pos;
@@ -307,8 +307,8 @@ pub(crate) fn code_view_editable_viewport(
         };
         ui.horizontal_top(|ui| {
             ui.add_space(gutter_w + GUTTER_PAD + TEXT_PAD_LEFT);
-            let output = code_text_edit(&mut viewport_buf, id, code_font.clone(), &mut layouter)
-                .show(ui);
+            let output =
+                code_text_edit(&mut viewport_buf, id, code_font.clone(), &mut layouter).show(ui);
             galley_y = output.galley_pos.y;
             out_galley = Some(output.galley.clone());
             out_galley_pos = output.galley_pos;

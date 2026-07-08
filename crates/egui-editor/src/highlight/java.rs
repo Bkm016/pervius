@@ -52,9 +52,9 @@ fn classify_identifier(node: &tree_sitter::Node, source: &[u8]) -> Option<TokenK
         "annotation" | "marker_annotation" => return Some(TokenKind::Annotation),
         // 注解限定名称 @java.lang.Override
         "scoped_identifier"
-            if parent
-                .parent()
-                .is_some_and(|gp| gp.kind() == "annotation" || gp.kind() == "marker_annotation") =>
+            if parent.parent().is_some_and(|gp| {
+                gp.kind() == "annotation" || gp.kind() == "marker_annotation"
+            }) =>
         {
             return Some(TokenKind::Annotation);
         }

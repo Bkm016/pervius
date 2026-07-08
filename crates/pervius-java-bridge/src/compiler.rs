@@ -158,7 +158,8 @@ pub fn compile_kotlin_sources_with_options(
 ) -> Result<CompileOutcome, BridgeError> {
     let classforge = classforge_jar()?;
     let kotlin_dependencies = crate::environment::ensure_kotlin_dependencies()?;
-    let mut runtime_classpath = Vec::with_capacity(2 + kotlin_dependencies.runtime_dependencies.len());
+    let mut runtime_classpath =
+        Vec::with_capacity(2 + kotlin_dependencies.runtime_dependencies.len());
     runtime_classpath.push(classforge.clone());
     runtime_classpath.push(kotlin_dependencies.compiler_embeddable.clone());
     runtime_classpath.extend(kotlin_dependencies.runtime_dependencies.iter().cloned());

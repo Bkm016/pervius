@@ -9,8 +9,8 @@ use crate::appearance::{codicon, theme};
 use eframe::egui;
 use egui_keybind::KeyBind;
 use egui_shell::components::{
-    path_picker_with, section_header, toggle, FlatButton, SectionDef, SettingsFile, SettingsPanel,
-    SettingsTheme,
+    FlatButton, SectionDef, SettingsFile, SettingsPanel, SettingsTheme, path_picker_with,
+    section_header, toggle,
 };
 use egui_shell::keybind_rows;
 use pervius_java_bridge::decompiler::{self, CacheEntry};
@@ -647,7 +647,11 @@ fn render_text_field_row(
 fn paint_java_path_hint(ui: &mut egui::Ui, st: &SettingsTheme, configured: &str) {
     let text = match process::resolve_java_path(configured) {
         Ok(path) => t!("settings.java_current_path", path = path.display()).to_string(),
-        Err(error) => t!("settings.java_current_path_failed", error = error.to_string()).to_string(),
+        Err(error) => t!(
+            "settings.java_current_path_failed",
+            error = error.to_string()
+        )
+        .to_string(),
     };
     paint_path_hint_line(ui, st, text);
 }
@@ -659,7 +663,11 @@ fn paint_tool_dir_hint(
 ) {
     let text = match path {
         Ok(path) => t!("settings.tool_current_dir", path = path.display()).to_string(),
-        Err(error) => t!("settings.tool_current_dir_failed", error = error.to_string()).to_string(),
+        Err(error) => t!(
+            "settings.tool_current_dir_failed",
+            error = error.to_string()
+        )
+        .to_string(),
     };
     paint_path_hint_line(ui, st, text);
 }
@@ -712,11 +720,7 @@ fn render_compile(draft: &mut Settings, ui: &mut egui::Ui, st: &SettingsTheme) -
                 }
             });
     });
-    paint_section_hint(
-        ui,
-        st,
-        t!("settings.kotlin_decompiler_hint").to_string(),
-    );
+    paint_section_hint(ui, st, t!("settings.kotlin_decompiler_hint").to_string());
     ui.add_space(8.0);
     changed |= toggle(
         ui,
@@ -855,7 +859,11 @@ fn render_classpath_entries(
             ui.painter().rect_filled(rect, 0.0, st.bg_hover);
         }
         let exists = Path::new(entry).exists();
-        let color = if exists { st.text_primary } else { st.text_muted };
+        let color = if exists {
+            st.text_primary
+        } else {
+            st.text_muted
+        };
         let left = rect.left() + 16.0;
         let mid_y = rect.center().y;
         let btn_w = 22.0;
@@ -869,12 +877,8 @@ fn render_classpath_entries(
             egui::pos2(left, rect.top()),
             egui::pos2(text_right, rect.bottom()),
         );
-        let display_entry = elide_middle(
-            ui,
-            entry,
-            egui::FontId::monospace(11.0),
-            text_rect.width(),
-        );
+        let display_entry =
+            elide_middle(ui, entry, egui::FontId::monospace(11.0), text_rect.width());
         ui.painter().text(
             egui::pos2(left, mid_y),
             egui::Align2::LEFT_CENTER,
@@ -1079,8 +1083,12 @@ fn paint_cache_entry(ui: &mut egui::Ui, st: &SettingsTheme, entry: &CacheEntry, 
     );
     // 次级信息：大小 + hash
     let mode_text = match entry.kotlin_mode {
-        decompiler::KotlinDecompilerMode::Vineflower => t!("settings.kotlin_decompiler_vineflower_short").to_string(),
-        decompiler::KotlinDecompilerMode::Java => t!("settings.kotlin_decompiler_java_short").to_string(),
+        decompiler::KotlinDecompilerMode::Vineflower => {
+            t!("settings.kotlin_decompiler_vineflower_short").to_string()
+        }
+        decompiler::KotlinDecompilerMode::Java => {
+            t!("settings.kotlin_decompiler_java_short").to_string()
+        }
     };
     let meta_text = format!(
         "{}  {}  {}",

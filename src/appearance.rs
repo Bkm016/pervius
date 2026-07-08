@@ -5,4 +5,4 @@
 pub mod codicon;
 pub mod theme;
 
-pub use egui_shell::{run, AppContent, ShellOptions, ShellTheme};
+pub use egui_shell::{AppContent, ShellOptions, ShellTheme, run};

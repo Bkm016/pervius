@@ -35,7 +35,7 @@ use frame::{
     finish_code_view_frame, line_highlight_ids, remember_line_highlight, show_code_view_frame,
 };
 
-pub(crate) use gutter::{paint_line_numbers, GUTTER_PAD, TEXT_PAD_LEFT};
+pub(crate) use gutter::{GUTTER_PAD, TEXT_PAD_LEFT, paint_line_numbers};
 pub(crate) use layout::{
     byte_offset_at_char, extract_highlight_word, hash_text, paint_word_highlight_overlay,
     rebuild_galley,

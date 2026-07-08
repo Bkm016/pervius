@@ -8,14 +8,15 @@ use std::collections::HashSet;
 use std::io::BufRead;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU32, AtomicU64, Ordering};
-use std::sync::{mpsc, Arc, Mutex};
+use std::sync::{Arc, Mutex, mpsc};
 
 use crate::process;
 
 /// 用户设置的反编译缓存根目录（优先于系统 cache_dir）
 static CUSTOM_CACHE_ROOT: Mutex<Option<PathBuf>> = Mutex::new(None);
 /// 当前 Kotlin 类反编译输出模式。
-static CURRENT_KOTLIN_MODE: Mutex<KotlinDecompilerMode> = Mutex::new(KotlinDecompilerMode::Vineflower);
+static CURRENT_KOTLIN_MODE: Mutex<KotlinDecompilerMode> =
+    Mutex::new(KotlinDecompilerMode::Vineflower);
 
 /// 缓存完成标记文件名
 const CACHE_COMPLETE_MARKER: &str = ".complete";
@@ -156,7 +157,9 @@ pub fn current_cache_root() -> Result<PathBuf, BridgeError> {
 
 /// 设置 Kotlin 类反编译输出模式。
 pub fn set_kotlin_decompiler_mode(mode: KotlinDecompilerMode) {
-    let mut lock = CURRENT_KOTLIN_MODE.lock().unwrap_or_else(|p| p.into_inner());
+    let mut lock = CURRENT_KOTLIN_MODE
+        .lock()
+        .unwrap_or_else(|p| p.into_inner());
     *lock = mode;
 }
 
@@ -555,9 +558,7 @@ fn run_vineflower(
         .unwrap_or(2);
     let mut cmd = process::JavaCommand::new(vineflower)?;
     apply_vineflower_source_options(&mut cmd);
-    cmd.arg(format!("-thr={thr}"))
-        .arg(jar_path)
-        .arg(output_dir);
+    cmd.arg(format!("-thr={thr}")).arg(jar_path).arg(output_dir);
     let mut child = cmd.spawn().map_err(BridgeError::SpawnFailed)?;
     child_pid.store(child.id(), Ordering::Relaxed);
     // stdout 和 stderr 各起一个线程读取，汇入同一 channel 统一解析

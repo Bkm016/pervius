@@ -9,8 +9,8 @@ use pervius_java_bridge::decompiler::DecompileTask;
 use pervius_java_bridge::error::BridgeError;
 use pervius_java_bridge::jar::{JarArchive, LoadProgress};
 use std::collections::HashSet;
-use std::sync::atomic::AtomicU32;
 use std::sync::Arc;
+use std::sync::atomic::AtomicU32;
 
 /// JAR 工作区生命周期状态
 pub(crate) enum Workspace {

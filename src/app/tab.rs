@@ -2,9 +2,9 @@
 //!
 //! @author sky
 
-use super::{editor_source_language, App};
-use crate::ui::editor::view_toggle::ActiveView;
+use super::{App, editor_source_language};
 use crate::ui::editor::EditorTab;
+use crate::ui::editor::view_toggle::ActiveView;
 use egui_editor::highlight::Language;
 use pervius_java_bridge::decompiler::{self, CachedSource};
 use rust_i18n::t;
@@ -45,8 +45,7 @@ impl App {
             && tab.source_modified
         {
             if tab.is_modified {
-                self.toasts
-                    .warning(t!("editor.source_vs_struct_conflict"));
+                self.toasts.warning(t!("editor.source_vs_struct_conflict"));
                 return;
             }
             if let Some(entry_path) = tab.entry_path.clone() {

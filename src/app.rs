@@ -34,13 +34,8 @@ pub(crate) fn editor_source_language(language: DecompiledSourceLanguage) -> Lang
 }
 
 pub(crate) enum CacheDeleteResult {
-    Single {
-        label: String,
-        deleted: bool,
-    },
-    All {
-        count: usize,
-    },
+    Single { label: String, deleted: bool },
+    All { count: usize },
 }
 
 /// 应用核心业务状态

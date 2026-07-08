@@ -7,8 +7,8 @@
 use super::annotation::to_editable_annotation;
 use super::resolve_utf8;
 use crate::class_structure::EditableAnnotation;
-use ristretto_classfile::attributes::Attribute;
 use ristretto_classfile::ConstantPool;
+use ristretto_classfile::attributes::Attribute;
 
 /// 从属性列表提取公共元数据（signature / deprecated / synthetic / annotations）
 pub(super) struct CommonAttrs {

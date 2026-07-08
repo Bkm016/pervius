@@ -2,9 +2,9 @@
 //!
 //! @author sky
 
+use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc::{self, TryRecvError};
-use std::sync::Arc;
 
 /// 非阻塞轮询结果
 pub enum Poll<T> {

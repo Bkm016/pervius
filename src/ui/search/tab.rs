@@ -5,20 +5,20 @@
 //!
 //! @author sky
 
-use super::index::{self, SearchIndex, SearchMessage, MAX_MATCHES};
+use super::index::{self, MAX_MATCHES, SearchIndex, SearchMessage};
 use super::result::SearchResultGroup;
 use super::widget::{self, render_group_header, separator};
 use crate::appearance::theme::flat_button_theme;
 use crate::appearance::{codicon, theme};
 use eframe::egui;
+use egui_editor::LayoutCache;
 use egui_editor::highlight::{self, Span};
 use egui_editor::search::FindMatch;
-use egui_editor::LayoutCache;
 use egui_shell::components::{FlatButton, FloatingWindow};
 use rust_i18n::t;
+use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc;
-use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 /// 搜索输入防抖延迟（毫秒）

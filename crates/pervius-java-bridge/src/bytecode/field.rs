@@ -5,8 +5,8 @@
 use super::common::extract_common_attrs;
 use super::resolve_utf8;
 use crate::class_structure::FieldInfo;
-use ristretto_classfile::attributes::Attribute;
 use ristretto_classfile::ConstantPool;
+use ristretto_classfile::attributes::Attribute;
 
 /// 从 Field 提取字段信息（访问标记、名称、描述符、常量值、注解等）
 pub(super) fn extract_field(field: &ristretto_classfile::Field, cp: &ConstantPool) -> FieldInfo {

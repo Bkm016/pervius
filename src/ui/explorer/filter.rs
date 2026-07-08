@@ -2,8 +2,8 @@
 //!
 //! @author sky
 
-use super::tree;
 use super::FilePanel;
+use super::tree;
 use crate::appearance::{codicon, theme};
 use crate::task::{Poll, Pollable, Task};
 use eframe::egui;

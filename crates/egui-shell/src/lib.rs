@@ -14,6 +14,6 @@ mod fonts;
 mod platform;
 mod titlebar;
 
-pub use app::{run, AppContent, ShellOptions, ShellTheme};
+pub use app::{AppContent, ShellOptions, ShellTheme, run};
 pub use codicon::family as codicon_family;
 pub use components::WindowConfig;

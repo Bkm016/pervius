@@ -11,8 +11,8 @@ mod index_progress;
 mod modified_count;
 mod view_toggle;
 
-use crate::app::workspace::DecompilePhase;
 use crate::app::App;
+use crate::app::workspace::DecompilePhase;
 pub use bar::StatusBar;
 use eframe::egui;
 use std::sync::atomic::Ordering;
@@ -41,9 +41,7 @@ impl App {
             .sync_modified_count(saved_paths, unsaved_paths);
         // 外部工具下载进度（英文固定文案）
         let download_info = pervius_java_bridge::environment::download_progress();
-        self.layout
-            .status_bar
-            .sync_download(download_info.clone());
+        self.layout.status_bar.sync_download(download_info.clone());
         // 反编译进度
         let re_decompile_name = self
             .workspace

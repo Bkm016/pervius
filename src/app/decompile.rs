@@ -3,7 +3,7 @@
 //! @author sky
 
 use super::workspace::{DecompilePhase, Workspace};
-use super::{editor_source_language, App};
+use super::{App, editor_source_language};
 use crate::task::{Poll, Pollable, Task};
 use crate::ui::editor::view_toggle::ActiveView;
 use pervius_java_bridge::decompiler;
@@ -18,7 +18,12 @@ pub(super) fn spawn_decompile_start_task(
     class_count: u32,
 ) -> (
     String,
-    Task<Result<pervius_java_bridge::decompiler::DecompileTask, pervius_java_bridge::error::BridgeError>>,
+    Task<
+        Result<
+            pervius_java_bridge::decompiler::DecompileTask,
+            pervius_java_bridge::error::BridgeError,
+        >,
+    >,
 ) {
     let path = jar_path.to_path_buf();
     let name = jar_name.to_string();

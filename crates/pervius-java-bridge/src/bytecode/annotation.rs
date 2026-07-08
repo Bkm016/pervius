@@ -3,8 +3,8 @@
 //! @author sky
 
 use crate::class_structure::{AnnotationPair, EditableAnnotation};
-use ristretto_classfile::attributes::{Annotation, AnnotationElement};
 use ristretto_classfile::ConstantPool;
+use ristretto_classfile::attributes::{Annotation, AnnotationElement};
 
 use super::{resolve_const, resolve_utf8};
 

@@ -27,7 +27,9 @@ pub fn classify(node: &tree_sitter::Node, source: &[u8]) -> Option<TokenKind> {
         | "else" | "when" | "for" | "do" | "while" | "try" | "catch" | "throw" | "finally"
         | "import" | "package" | "is" | "!is" | "in" | "!in" | "as" | "as?" | "constructor"
         | "init" | "get" | "set" | "return" | "continue" | "break" | "return_at"
-        | "continue_at" | "break_at" | "new" | "companion" | "by" | "where" => Some(TokenKind::Keyword),
+        | "continue_at" | "break_at" | "new" | "companion" | "by" | "where" => {
+            Some(TokenKind::Keyword)
+        }
         // 修饰符关键字
         "class_modifier"
         | "member_modifier"
@@ -477,11 +479,7 @@ fn patch_special_method_name_spans(spans: &mut Vec<Span>, source: &str) {
                 && next_non_whitespace_char(source, end_tick + 1) == Some('(')
                 && !range_is_string_or_comment(spans, name_start, name_end)
             {
-                special_spans.push((
-                    name_start,
-                    name_end,
-                    special_method_kind(source, i),
-                ));
+                special_spans.push((name_start, name_end, special_method_kind(source, i)));
             }
             i = end_tick + 1;
             continue;
@@ -513,9 +511,11 @@ fn patch_special_method_name_spans(spans: &mut Vec<Span>, source: &str) {
     }
     spans.retain(|&(start, end, kind)| {
         matches!(kind, TokenKind::String | TokenKind::Comment)
-            || !special_spans.iter().any(|&(special_start, special_end, _)| {
-                ranges_overlap(start, end, special_start, special_end)
-            })
+            || !special_spans
+                .iter()
+                .any(|&(special_start, special_end, _)| {
+                    ranges_overlap(start, end, special_start, special_end)
+                })
     });
     spans.extend(special_spans);
 }
@@ -613,7 +613,9 @@ fn push_string_span(spans: &mut Vec<Span>, source: &str, start: usize, end: usiz
 }
 
 fn find_raw_string_end(source: &str, from: usize) -> Option<usize> {
-    source[from..].find("\"\"\"").map(|offset| from + offset + 3)
+    source[from..]
+        .find("\"\"\"")
+        .map(|offset| from + offset + 3)
 }
 
 fn find_line_string_end(bytes: &[u8], mut i: usize) -> usize {
@@ -698,7 +700,7 @@ fn ancestors_contain(node: &tree_sitter::Node, kind: &str, max_depth: usize) -> 
 
 #[cfg(test)]
 mod tests {
-    use crate::highlight::{compute_spans, Language, Span, TokenKind};
+    use crate::highlight::{Language, Span, TokenKind, compute_spans};
 
     fn spans(source: &str) -> Vec<Span> {
         compute_spans(source, Language::Kotlin)
@@ -752,7 +754,8 @@ mod tests {
 
     #[test]
     fn string_interpolation_keeps_expression_highlighting() {
-        let source = "fun demo(name: String, value: Int) { val s = \"hello$name ${format(value)}\" }";
+        let source =
+            "fun demo(name: String, value: Int) { val s = \"hello$name ${format(value)}\" }";
         let spans = spans(source);
 
         assert_ne!(kind_at(source, &spans, "name", 1), TokenKind::String);

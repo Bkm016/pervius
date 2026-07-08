@@ -9,7 +9,7 @@ use super::view_toggle::ActiveView;
 use crate::appearance::{codicon, theme};
 use crate::ui::keybindings;
 use eframe::egui;
-use egui_dock::{tab_viewer::OnCloseResponse, NodePath, TabViewer};
+use egui_dock::{NodePath, TabViewer, tab_viewer::OnCloseResponse};
 use egui_editor::code_view::NavigationHit;
 use egui_editor::find_bar::FindBar;
 use egui_shell::components::menu_item;

@@ -9,8 +9,8 @@ use std::collections::HashSet;
 use std::fs::File;
 use std::io::{BufReader, Read, Write};
 use std::path::{Path, PathBuf};
-use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Mutex;
+use std::sync::atomic::{AtomicU64, Ordering};
 
 #[derive(Clone, Debug)]
 struct ActiveDownload {
@@ -147,7 +147,9 @@ fn collect_dependency_closure(
         &artifact.pom_file_name(),
         &artifact.pom_url(),
     )?)? {
-        if dependency.optional || !dependency_scope_matches(dependency.scope.as_deref(), runtime_only) {
+        if dependency.optional
+            || !dependency_scope_matches(dependency.scope.as_deref(), runtime_only)
+        {
             continue;
         }
         let jar = MavenJar {
@@ -350,9 +352,8 @@ fn fetch_sha256(dir: &Path, file_name: &str, url: &str) -> Result<String, Bridge
     }
     cleanup_file(&path);
     let text = load_cached_text_file(dir, file_name, url)?;
-    parse_sha256_text(&text).ok_or_else(|| {
-        BridgeError::Download(format!("invalid sha256 response from {url}: {text}"))
-    })
+    parse_sha256_text(&text)
+        .ok_or_else(|| BridgeError::Download(format!("invalid sha256 response from {url}: {text}")))
 }
 
 fn parse_sha256_text(text: &str) -> Option<String> {
@@ -362,8 +363,7 @@ fn parse_sha256_text(text: &str) -> Option<String> {
         .unwrap_or_default()
         .trim()
         .to_ascii_lowercase();
-    (checksum.len() == 64 && checksum.bytes().all(|b| b.is_ascii_hexdigit()))
-        .then_some(checksum)
+    (checksum.len() == 64 && checksum.bytes().all(|b| b.is_ascii_hexdigit())).then_some(checksum)
 }
 
 fn load_cached_text_file(dir: &Path, file_name: &str, url: &str) -> Result<String, BridgeError> {

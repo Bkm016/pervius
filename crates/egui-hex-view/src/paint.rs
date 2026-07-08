@@ -3,7 +3,7 @@
 //! @author sky
 
 use crate::layout::Cols;
-use crate::{HexTheme, HexViewState, BYTES_PER_ROW, FONT_SIZE, HEADER_H, PAD_TOP, ROW_H};
+use crate::{BYTES_PER_ROW, FONT_SIZE, HEADER_H, HexTheme, HexViewState, PAD_TOP, ROW_H};
 use eframe::egui;
 
 /// 字节值 → hex 区颜色

@@ -114,7 +114,12 @@ impl App {
         }
         let dest = jar.path.clone();
         let snapshot = jar.snapshot_entries();
-        self.start_jar_write(dest, modified_count, snapshot, JarWriteMode::OverwriteSource);
+        self.start_jar_write(
+            dest,
+            modified_count,
+            snapshot,
+            JarWriteMode::OverwriteSource,
+        );
     }
 
     /// 轮询后台 JAR 导出是否完成

@@ -7,9 +7,9 @@
 use pervius_java_bridge::decompiler;
 use regex::Regex;
 use std::collections::{HashMap, HashSet};
+use std::sync::Arc;
 use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
 use std::sync::mpsc;
-use std::sync::Arc;
 
 /// 搜索结果上限
 pub const MAX_MATCHES: usize = 100;

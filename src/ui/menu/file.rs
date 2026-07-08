@@ -7,7 +7,7 @@ use crate::app::App;
 use crate::appearance::theme;
 use eframe::egui;
 use egui_shell::components::{
-    menu_item, menu_item_if, menu_item_raw, menu_item_raw_if, menu_submenu, SettingsFile,
+    SettingsFile, menu_item, menu_item_if, menu_item_raw, menu_item_raw_if, menu_submenu,
 };
 use rust_i18n::t;
 use std::path::PathBuf;

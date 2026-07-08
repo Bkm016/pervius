@@ -112,7 +112,8 @@ pub fn ensure_kotlin_dependencies() -> Result<KotlinDependencies, BridgeError> {
 }
 
 fn normalize_config(mut config: EnvironmentConfig) -> EnvironmentConfig {
-    config.vineflower_version = normalize_version(&config.vineflower_version, DEFAULT_VINEFLOWER_VERSION);
+    config.vineflower_version =
+        normalize_version(&config.vineflower_version, DEFAULT_VINEFLOWER_VERSION);
     config.kotlin_version = normalize_version(&config.kotlin_version, DEFAULT_KOTLIN_VERSION);
     config.vineflower_dir = normalize_dir(config.vineflower_dir);
     config.kotlin_dependencies_dir = normalize_dir(config.kotlin_dependencies_dir);

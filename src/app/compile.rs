@@ -99,8 +99,7 @@ impl App {
                 return None;
             }
             if tab.is_modified {
-                self.toasts
-                    .warning(t!("editor.source_vs_struct_conflict"));
+                self.toasts.warning(t!("editor.source_vs_struct_conflict"));
                 return None;
             }
             let Some(target) = class_info_release(tab.class_info.as_deref()) else {
@@ -128,10 +127,7 @@ impl App {
         request: &CompileRequest,
     ) -> Task<Result<CompileOutcome, BridgeError>> {
         let classpath = self.compile_classpath();
-        let skip_metadata_version_check = self
-            .settings
-            .compile
-            .kotlin_skip_metadata_version_check;
+        let skip_metadata_version_check = self.settings.compile.kotlin_skip_metadata_version_check;
         let entry_path = request.entry_path.clone();
         let binary_name = request
             .entry_path
@@ -181,7 +177,11 @@ impl App {
             let pending = self.pending_compiles.swap_remove(i);
             match result {
                 Ok(CompileOutcome::Success(classes)) => {
-                    self.handle_compile_success(&pending.entry_path, &pending.source_snapshot, classes);
+                    self.handle_compile_success(
+                        &pending.entry_path,
+                        &pending.source_snapshot,
+                        classes,
+                    );
                 }
                 Ok(CompileOutcome::Errors(diagnostics)) => {
                     self.handle_compile_errors(&pending.entry_path, diagnostics);
@@ -249,11 +249,7 @@ impl App {
         log::info!("Compiled source: {entry_path} ({count} classes)");
     }
 
-    fn handle_compile_errors(
-        &mut self,
-        entry_path: &str,
-        diagnostics: Vec<CompileDiagnostic>,
-    ) {
+    fn handle_compile_errors(&mut self, entry_path: &str, diagnostics: Vec<CompileDiagnostic>) {
         let first = diagnostics
             .iter()
             .find(|d| d.severity == DiagSeverity::Error)

@@ -125,13 +125,8 @@ pub fn render_field_editable(
                     theme::SYN_KEYWORD,
                     read_only,
                 );
-                changed |= render_editable_kv(
-                    ui,
-                    "Name",
-                    &mut field.name,
-                    theme::TEXT_PRIMARY,
-                    read_only,
-                );
+                changed |=
+                    render_editable_kv(ui, "Name", &mut field.name, theme::TEXT_PRIMARY, read_only);
                 changed |= render_editable_kv(
                     ui,
                     "Descriptor",
