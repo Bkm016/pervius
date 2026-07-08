@@ -9,12 +9,26 @@ use crate::appearance::theme::flat_button_theme;
 use crate::appearance::{codicon, theme};
 use crate::task::Task;
 use eframe::egui;
-use egui_shell::components::{menu_item_raw, FlatButton};
+use egui_shell::components::{FlatButton, menu_item_raw};
 use rust_i18n::t;
 use std::collections::HashSet;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use tree::TreeNode;
+
+/// 文件树条目动作（由 App 消费并修改当前 JAR）。
+#[derive(Clone)]
+pub enum FileAction {
+    /// 删除指定 JAR 条目。
+    Delete(String),
+    /// 将指定 JAR 条目重命名为新路径。
+    Rename {
+        /// 原始条目路径。
+        old_path: String,
+        /// 新条目路径。
+        new_path: String,
+    },
+}
 
 /// Classpath 面板产生的一次性动作（由 App 消费）。
 #[derive(Clone)]
@@ -27,6 +41,16 @@ pub enum ClasspathAction {
     RemoveProject(PathBuf),
     /// 删除全局 classpath 配置。
     RemoveGlobal(String),
+}
+
+/// 当前正在编辑的 JAR 条目重命名状态。
+struct RenameEntry {
+    /// 原始条目路径。
+    old_path: String,
+    /// 输入框中的新条目路径。
+    value: String,
+    /// 是否已经把焦点交给输入框。
+    focus_requested: bool,
 }
 
 tabookit::class! {
@@ -60,6 +84,10 @@ tabookit::class! {
         classpath_height: f32,
         /// 待处理 Classpath UI 动作
         pending_classpath_action: Option<ClasspathAction>,
+        /// 待处理文件树 UI 动作
+        pending_file_action: Option<FileAction>,
+        /// 正在重命名的文件条目
+        rename_entry: Option<RenameEntry>,
     }
 
     pub fn new() -> Self {
@@ -78,6 +106,8 @@ tabookit::class! {
             classpath_expanded: true,
             classpath_height: 0.0,
             pending_classpath_action: None,
+            pending_file_action: None,
+            rename_entry: None,
         }
     }
 
@@ -93,9 +123,16 @@ tabookit::class! {
         global_classpath: &[String],
     ) {
         let rect = ui.max_rect();
-        self.update_focus(ui.ctx(), rect);
-        if self.focused {
-            self.capture_input(ui.ctx());
+        if self.rename_entry.is_some() {
+            self.focused = false;
+            if !self.filter.is_empty() || !self.filter_visible.is_empty() {
+                self.clear_filter();
+            }
+        } else {
+            self.update_focus(ui.ctx(), rect);
+            if self.focused {
+                self.capture_input(ui.ctx());
+            }
         }
         self.poll_filter_result();
         // 面板标题
@@ -132,11 +169,25 @@ tabookit::class! {
         self.render_classpath_panel(ui, classpath_rect, current_jar, project_classpath, global_classpath);
         // 过滤条浮层
         self.render_filter_bar(ui, rect);
+        self.render_rename_dialog(ui, rect);
     }
 
     /// 取出 Classpath 面板动作。
     pub fn take_classpath_action(&mut self) -> Option<ClasspathAction> {
         self.pending_classpath_action.take()
+    }
+
+    /// 取出文件树动作。
+    pub fn take_file_action(&mut self) -> Option<FileAction> {
+        self.pending_file_action.take()
+    }
+
+    /// 替换文件树并清理过滤缓存。
+    pub fn set_roots(&mut self, roots: Vec<TreeNode>) {
+        self.roots = roots;
+        self.filter_index = None;
+        self.filter_task = None;
+        self.clear_filter();
     }
 
     fn classpath_height_bounds(body_rect: egui::Rect) -> (f32, f32) {
@@ -437,6 +488,8 @@ tabookit::class! {
     ) {
         let filtering = !self.filter.is_empty();
         let mut ctx_reveal = None;
+        let mut ctx_rename = None;
+        let mut ctx_delete = None;
         let scroll = self.scroll_to_selected;
         let opened = tree::render_tree(
             ui,
@@ -444,6 +497,8 @@ tabookit::class! {
             &self.selected,
             &self.filter_visible,
             &mut ctx_reveal,
+            &mut ctx_rename,
+            &mut ctx_delete,
             scroll,
             tab_modified,
             jar_modified,
@@ -461,6 +516,91 @@ tabookit::class! {
         }
         if ctx_reveal.is_some() {
             self.pending_reveal = ctx_reveal;
+        }
+        if let Some(path) = ctx_rename {
+            self.rename_entry = Some(RenameEntry {
+                old_path: path.clone(),
+                value: path,
+                focus_requested: false,
+            });
+            self.clear_filter();
+        }
+        if let Some(path) = ctx_delete {
+            self.pending_file_action = Some(FileAction::Delete(path));
+        }
+    }
+
+    /// 渲染 JAR 条目重命名输入浮层。
+    fn render_rename_dialog(&mut self, ui: &mut egui::Ui, rect: egui::Rect) {
+        let Some(rename) = &mut self.rename_entry else {
+            return;
+        };
+        let width = (rect.width() - 24.0).clamp(220.0, 420.0);
+        let height = 116.0;
+        let dialog_rect = egui::Rect::from_center_size(
+            rect.center(),
+            egui::vec2(width, height),
+        );
+        let mut submit = false;
+        let mut cancel = false;
+        egui::Area::new(egui::Id::new("jar_entry_rename"))
+            .fixed_pos(dialog_rect.min)
+            .order(egui::Order::Foreground)
+            .show(ui.ctx(), |ui| {
+                let frame = egui::Frame::NONE
+                    .fill(theme::BG_LIGHT)
+                    .stroke(egui::Stroke::new(1.0, theme::BORDER))
+                    .corner_radius(6.0)
+                    .shadow(egui::Shadow {
+                        spread: 1,
+                        blur: 12,
+                        offset: [0, 4],
+                        color: egui::Color32::from_black_alpha(90),
+                    })
+                    .inner_margin(egui::Margin::same(10));
+                frame.show(ui, |ui| {
+                    ui.set_width(width - 20.0);
+                    ui.label(
+                        egui::RichText::new(t!("explorer.rename_title").to_string())
+                            .size(12.0)
+                            .strong()
+                            .color(theme::TEXT_PRIMARY),
+                    );
+                    ui.add_space(6.0);
+                    let response = ui.add(
+                        egui::TextEdit::singleline(&mut rename.value)
+                            .desired_width(width - 20.0),
+                    );
+                    if !rename.focus_requested {
+                        response.request_focus();
+                        rename.focus_requested = true;
+                    }
+                    if response.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter)) {
+                        submit = true;
+                    }
+                    if ui.input(|i| i.key_pressed(egui::Key::Escape)) {
+                        cancel = true;
+                    }
+                    ui.add_space(8.0);
+                    ui.horizontal(|ui| {
+                        if ui.button(t!("explorer.rename_ok").to_string()).clicked() {
+                            submit = true;
+                        }
+                        if ui.button(t!("explorer.rename_cancel").to_string()).clicked() {
+                            cancel = true;
+                        }
+                    });
+                });
+            });
+        if cancel {
+            self.rename_entry = None;
+            return;
+        }
+        if submit {
+            let old_path = rename.old_path.clone();
+            let new_path = rename.value.clone();
+            self.pending_file_action = Some(FileAction::Rename { old_path, new_path });
+            self.rename_entry = None;
         }
     }
 

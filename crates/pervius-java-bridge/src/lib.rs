@@ -15,10 +15,10 @@ pub mod class_structure;
 pub mod compiler;
 pub mod decompiler;
 pub(crate) mod deps;
+pub mod environment;
 pub mod error;
 pub mod jar;
 pub mod process;
-pub mod environment;
 pub mod save;
 
 /// Kotlin 编译器生成的内部注解，不可编辑，读写时均跳过
@@ -38,14 +38,14 @@ fn bundled_libs_dir() -> Result<PathBuf, error::BridgeError> {
     Ok(base.join("pervius").join("libs"))
 }
 
-/// 释放内置 JAR 到数据目录（已存在且大小一致则跳过）
+/// 释放内置 JAR 到数据目录（已存在且内容一致则跳过）
 fn extract_bundled_jar(data: &[u8], filename: &str) -> Result<PathBuf, error::BridgeError> {
     let dir = bundled_libs_dir()?;
     std::fs::create_dir_all(&dir)?;
     let target = dir.join(filename);
-    // 已存在且大小一致 → 跳过写入
-    if let Ok(meta) = std::fs::metadata(&target) {
-        if meta.len() == data.len() as u64 {
+    // ClassForge 修复可能不改变文件大小，必须比较内容避免复用旧缓存。
+    if let Ok(existing) = std::fs::read(&target) {
+        if existing == data {
             return Ok(target);
         }
     }

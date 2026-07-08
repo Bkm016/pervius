@@ -64,6 +64,8 @@ pub fn render_tree(
     selected: &Option<String>,
     visible: &HashSet<String>,
     reveal: &mut Option<String>,
+    rename: &mut Option<String>,
+    delete: &mut Option<String>,
     scroll: bool,
     tab_modified: &HashSet<String>,
     jar_modified: &HashSet<String>,
@@ -102,6 +104,8 @@ pub fn render_tree(
                 selected,
                 visible,
                 reveal,
+                rename,
+                delete,
                 scroll,
                 tab_modified,
                 jar_modified,
@@ -127,6 +131,8 @@ fn render_range(
     selected: &Option<String>,
     visible: &HashSet<String>,
     reveal: &mut Option<String>,
+    rename: &mut Option<String>,
+    delete: &mut Option<String>,
     scroll: bool,
     tab_modified: &HashSet<String>,
     jar_modified: &HashSet<String>,
@@ -174,6 +180,8 @@ fn render_range(
                 mod_color,
                 decompiled_classes,
                 reveal,
+                rename,
+                delete,
                 scroll,
                 openness,
             );
@@ -211,6 +219,8 @@ fn render_range(
                     selected,
                     visible,
                     reveal,
+                    rename,
+                    delete,
                     scroll,
                     tab_modified,
                     jar_modified,
@@ -261,6 +271,8 @@ fn render_row(
     mod_color: Option<egui::Color32>,
     decompiled_classes: Option<&HashSet<String>>,
     reveal: &mut Option<String>,
+    rename: &mut Option<String>,
+    delete: &mut Option<String>,
     scroll: bool,
     openness: f32,
 ) -> (bool, bool) {
@@ -347,6 +359,15 @@ fn render_row(
             ui.style_mut().visuals.widgets.hovered.bg_fill = theme::BG_HOVER;
             if menu_item_raw(ui, &theme::menu_theme(), &t!("explorer.reveal"), "") {
                 *reveal = Some(node.path.clone());
+                ui.close();
+            }
+            if menu_item_raw(ui, &theme::menu_theme(), &t!("explorer.rename"), "") {
+                *rename = Some(node.path.clone());
+                ui.close();
+            }
+            ui.separator();
+            if menu_item_raw(ui, &theme::menu_theme(), &t!("explorer.delete"), "") {
+                *delete = Some(node.path.clone());
                 ui.close();
             }
         });

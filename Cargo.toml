@@ -3,7 +3,7 @@ members = [".", "crates/egui-animation", "crates/egui-editor", "crates/egui-hex-
 
 [package]
 name = "pervius"
-version = "0.2.0"
+version = "0.2.1"
 edition = "2024"
 
 [dependencies]

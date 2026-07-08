@@ -2,18 +2,18 @@
 //!
 //! @author sky
 
+use super::App;
 use super::decompile::spawn_decompile_start_task;
 use super::workspace::{DecompilePhase, LoadedState, LoadingState, Workspace};
-use super::App;
 use crate::app::ConfirmAction;
 use crate::task::{Poll, Pollable, Task};
 use crate::ui::editor::EditorArea;
 use crate::ui::explorer::tree;
 use eframe::egui;
 use egui_shell::components::SettingsFile;
-use pervius_java_bridge::{decompiler, environment};
 use pervius_java_bridge::error::BridgeError;
 use pervius_java_bridge::jar::{JarArchive, LoadProgress};
+use pervius_java_bridge::{decompiler, environment};
 use rust_i18n::t;
 use std::path::Path;
 use std::sync::Arc;
@@ -106,9 +106,10 @@ impl App {
 
     fn finish_loading_jar(&mut self, jar: JarArchive) {
         let paths = jar.paths();
-        self.layout.file_panel.roots = tree::build_tree(&jar.name, &paths);
+        self.layout
+            .file_panel
+            .set_roots(tree::build_tree(&jar.name, &paths));
         self.layout.file_panel.selected = None;
-        self.layout.file_panel.filter.clear();
         let (decompile, pending_start) = initial_decompile_state(&jar, &mut self.pending_confirm);
         self.settings.add_recent(&jar.path, &jar.name);
         if let Err(e) = self.settings.save() {

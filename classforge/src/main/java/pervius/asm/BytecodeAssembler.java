@@ -27,8 +27,14 @@ public class BytecodeAssembler {
      * @param method          目标 MethodNode（指令和元数据将被替换）
      * @param code            字节码文本
      * @param originalDynamic 原始方法中的 INVOKEDYNAMIC 指令（按出现顺序），用于保留 bootstrap 信息
+     * @param originalMethods 原始方法中的普通方法调用指令（按出现顺序），用于保留接口调用常量池类型
      */
-    public static void assemble(MethodNode method, String code, List<InvokeDynamicInsnNode> originalDynamic) {
+    public static void assemble(
+            MethodNode method,
+            String code,
+            List<InvokeDynamicInsnNode> originalDynamic,
+            List<MethodInsnNode> originalMethods
+    ) {
         // Pass 1: 收集标签定义 + 变量名→槽位映射
         Map<String, LabelNode> labels = collectLabels(code);
         Map<String, Integer> nameToSlot = collectVarNames(code);
@@ -39,6 +45,7 @@ public class BytecodeAssembler {
         // .vartype: (slot, name, sig, startLabel, endLabel)
         List<Object[]> varTypes = new ArrayList<>();
         int dynamicIdx = 0;
+        int methodInsnIdx = 0;
         LabelNode lastLabel = null;
         String[] lines = code.split("\n");
         int i = 0;
@@ -140,8 +147,18 @@ public class BytecodeAssembler {
             }
             // 普通指令
             String operands = sp == -1 ? "" : t.substring(sp + 1).trim();
-            AbstractInsnNode insn = parseInstruction(opcode, operands, labels, originalDynamic, dynamicIdx, nameToSlot);
+            AbstractInsnNode insn = parseInstruction(
+                    opcode,
+                    operands,
+                    labels,
+                    originalDynamic,
+                    dynamicIdx,
+                    originalMethods,
+                    methodInsnIdx,
+                    nameToSlot
+            );
             if (insn instanceof InvokeDynamicInsnNode) dynamicIdx++;
+            if (insn instanceof MethodInsnNode) methodInsnIdx++;
             insns.add(insn);
             lastLabel = null;
         }
@@ -243,6 +260,8 @@ public class BytecodeAssembler {
             Map<String, LabelNode> labels,
             List<InvokeDynamicInsnNode> originalDynamic,
             int dynamicIdx,
+            List<MethodInsnNode> originalMethods,
+            int methodInsnIdx,
             Map<String, Integer> nameToSlot
     ) {
         // 零操作数指令
@@ -295,10 +314,10 @@ public class BytecodeAssembler {
             case "GETFIELD": return parseFieldInsn(Opcodes.GETFIELD, operands);
             case "PUTFIELD": return parseFieldInsn(Opcodes.PUTFIELD, operands);
             // 方法调用: owner.methodName(desc)ret
-            case "INVOKEVIRTUAL": return parseMethodInsn(Opcodes.INVOKEVIRTUAL, operands, false);
-            case "INVOKESPECIAL": return parseMethodInsn(Opcodes.INVOKESPECIAL, operands, false);
-            case "INVOKESTATIC": return parseMethodInsn(Opcodes.INVOKESTATIC, operands, false);
-            case "INVOKEINTERFACE": return parseMethodInsn(Opcodes.INVOKEINTERFACE, operands, true);
+            case "INVOKEVIRTUAL": return parseMethodInsn(Opcodes.INVOKEVIRTUAL, operands, false, originalMethods, methodInsnIdx);
+            case "INVOKESPECIAL": return parseMethodInsn(Opcodes.INVOKESPECIAL, operands, false, originalMethods, methodInsnIdx);
+            case "INVOKESTATIC": return parseMethodInsn(Opcodes.INVOKESTATIC, operands, false, originalMethods, methodInsnIdx);
+            case "INVOKEINTERFACE": return parseMethodInsn(Opcodes.INVOKEINTERFACE, operands, true, originalMethods, methodInsnIdx);
             // INVOKEDYNAMIC: #bsmIdx name(desc)ret → 复用原始 bootstrap 信息
             case "INVOKEDYNAMIC": return parseInvokeDynamic(operands, originalDynamic, dynamicIdx);
             // 类型操作
@@ -335,13 +354,18 @@ public class BytecodeAssembler {
         if (s.startsWith("\"") && s.endsWith("\"")) {
             return unescapeString(s.substring(1, s.length() - 1));
         }
+        // 后缀也可能出现在内部类名中，数字解析失败时继续按 Class 引用处理。
         // Float: Nf
         if (s.endsWith("f") || s.endsWith("F")) {
-            return Float.parseFloat(s.substring(0, s.length() - 1));
+            try {
+                return Float.parseFloat(s.substring(0, s.length() - 1));
+            } catch (NumberFormatException ignored) {}
         }
         // Long: NL
         if (s.endsWith("L") || s.endsWith("l")) {
-            return Long.parseLong(s.substring(0, s.length() - 1));
+            try {
+                return Long.parseLong(s.substring(0, s.length() - 1));
+            } catch (NumberFormatException ignored) {}
         }
         // Integer
         try {
@@ -372,7 +396,13 @@ public class BytecodeAssembler {
     /**
      * 解析方法调用指令: "owner.methodName(desc)ret"
      */
-    private static MethodInsnNode parseMethodInsn(int opcode, String operands, boolean isInterface) {
+    private static MethodInsnNode parseMethodInsn(
+            int opcode,
+            String operands,
+            boolean defaultInterface,
+            List<MethodInsnNode> originalMethods,
+            int methodInsnIdx
+    ) {
         String s = operands.trim();
         int paren = s.indexOf('(');
         String beforeParen = s.substring(0, paren);
@@ -380,7 +410,42 @@ public class BytecodeAssembler {
         int dot = beforeParen.lastIndexOf('.');
         String owner = beforeParen.substring(0, dot);
         String name = beforeParen.substring(dot + 1);
+        boolean isInterface = resolveOriginalInterfaceFlag(
+                opcode,
+                owner,
+                name,
+                desc,
+                defaultInterface,
+                originalMethods,
+                methodInsnIdx
+        );
         return new MethodInsnNode(opcode, owner, name, desc, isInterface);
+    }
+
+    /**
+     * 保留原始方法调用的接口常量池类型
+     * INVOKESTATIC 调用接口静态方法时 opcode 仍是 INVOKESTATIC，但常量池必须写成 InterfaceMethodref。
+     */
+    private static boolean resolveOriginalInterfaceFlag(
+            int opcode,
+            String owner,
+            String name,
+            String desc,
+            boolean defaultInterface,
+            List<MethodInsnNode> originalMethods,
+            int methodInsnIdx
+    ) {
+        if (methodInsnIdx >= originalMethods.size()) {
+            return defaultInterface;
+        }
+        MethodInsnNode original = originalMethods.get(methodInsnIdx);
+        if (original.getOpcode() != opcode) {
+            return defaultInterface;
+        }
+        if (!owner.equals(original.owner) || !name.equals(original.name) || !desc.equals(original.desc)) {
+            return defaultInterface;
+        }
+        return original.itf;
     }
 
     /**

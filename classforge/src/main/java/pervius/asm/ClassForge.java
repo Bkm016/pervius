@@ -8,6 +8,7 @@ import org.objectweb.asm.Opcodes;
 import org.objectweb.asm.tree.ClassNode;
 import org.objectweb.asm.tree.InvokeDynamicInsnNode;
 import org.objectweb.asm.tree.AbstractInsnNode;
+import org.objectweb.asm.tree.MethodInsnNode;
 import org.objectweb.asm.tree.MethodNode;
 import org.objectweb.asm.tree.analysis.Analyzer;
 import org.objectweb.asm.tree.analysis.BasicVerifier;
@@ -139,12 +140,15 @@ public class ClassForge {
             String code = edits.get(key);
             if (code == null) continue;
             List<InvokeDynamicInsnNode> originalDynamic = new ArrayList<>();
+            List<MethodInsnNode> originalMethods = new ArrayList<>();
             for (AbstractInsnNode insn = mn.instructions.getFirst(); insn != null; insn = insn.getNext()) {
                 if (insn instanceof InvokeDynamicInsnNode) {
                     originalDynamic.add((InvokeDynamicInsnNode) insn);
+                } else if (insn instanceof MethodInsnNode) {
+                    originalMethods.add((MethodInsnNode) insn);
                 }
             }
-            BytecodeAssembler.assemble(mn, code, originalDynamic);
+            BytecodeAssembler.assemble(mn, code, originalDynamic, originalMethods);
             modified.put(key, mn);
         }
         // 用 COMPUTE_MAXS 预算 maxStack/maxLocals，再交给 Analyzer 校验

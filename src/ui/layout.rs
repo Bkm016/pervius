@@ -2,7 +2,8 @@
 //!
 //! @author sky
 
-use crate::app::workspace::{DecompilePhase, Workspace};
+use crate::app::navigate::ClassResolver;
+use crate::app::workspace::{DecompilePhase, LoadedState, Workspace};
 use crate::app::{App, CacheDeleteResult, ConfirmAction};
 use crate::appearance::theme;
 use crate::settings::{self, Settings, SettingsAction, SettingsPanelState};
@@ -15,7 +16,7 @@ use rust_i18n::t;
 use std::sync::atomic::Ordering;
 
 use super::editor::EditorArea;
-use super::explorer::{ClasspathAction, FilePanel};
+use super::explorer::{ClasspathAction, FileAction, FilePanel, tree};
 use super::search::SearchDialog;
 use super::status_bar::StatusBar;
 
@@ -205,9 +206,11 @@ impl App {
             process::set_java_home(&new_settings.java.java_home);
         }
         let cache_changed = new_settings.cache.decompiled_dir != self.settings.cache.decompiled_dir;
-        let vineflower_changed = new_settings.java.vineflower_version != self.settings.java.vineflower_version
+        let vineflower_changed = new_settings.java.vineflower_version
+            != self.settings.java.vineflower_version
             || new_settings.java.vineflower_dir != self.settings.java.vineflower_dir;
-        let kotlin_settings_changed = new_settings.java.kotlin_version != self.settings.java.kotlin_version
+        let kotlin_settings_changed = new_settings.java.kotlin_version
+            != self.settings.java.kotlin_version
             || new_settings.java.kotlin_dependencies_dir
                 != self.settings.java.kotlin_dependencies_dir;
         let environment_changed = vineflower_changed || kotlin_settings_changed;
@@ -266,7 +269,8 @@ impl App {
             Poll::Pending => return,
             Poll::Lost => {
                 self.pending_vineflower_prepare = None;
-                self.toasts.error(t!("layout.vineflower_prepare_task_failed"));
+                self.toasts
+                    .error(t!("layout.vineflower_prepare_task_failed"));
                 return;
             }
         };
@@ -274,9 +278,10 @@ impl App {
         match result {
             Ok(path) => {
                 self.layout.status_bar = StatusBar::default();
-                self.toasts.info(
-                    t!("layout.vineflower_prepare_complete", path = path.display().to_string()),
-                );
+                self.toasts.info(t!(
+                    "layout.vineflower_prepare_complete",
+                    path = path.display().to_string()
+                ));
             }
             Err(error) => {
                 self.toasts.error(t!(
@@ -440,8 +445,112 @@ impl App {
             &project_classpath,
             &global_classpath,
         );
+        self.handle_file_panel_action();
         self.handle_classpath_panel_action();
         egui_shell::components::widget::island::paint_corner_mask(ui, rect, &theme::ISLAND);
+    }
+
+    fn handle_file_panel_action(&mut self) {
+        let Some(action) = self.layout.file_panel.take_file_action() else {
+            return;
+        };
+        match action {
+            FileAction::Delete(path) => self.delete_jar_entry(path),
+            FileAction::Rename { old_path, new_path } => self.rename_jar_entry(old_path, new_path),
+        }
+    }
+
+    fn delete_jar_entry(&mut self, path: String) {
+        if self
+            .layout
+            .editor
+            .unsaved_paths()
+            .iter()
+            .any(|entry| entry == &path)
+        {
+            self.toasts.warning(t!("layout.entry_unsaved", path = path));
+            return;
+        }
+        let Some((jar_name, paths)) = self.delete_loaded_jar_entry(&path) else {
+            self.toasts.error(t!("layout.entry_not_found", path = path));
+            return;
+        };
+        self.pending_decompiles.retain(|(entry, _)| entry != &path);
+        self.layout.editor.close_entry_tab(&path);
+        if self.layout.file_panel.selected.as_deref() == Some(&path) {
+            self.layout.file_panel.selected = None;
+        }
+        self.rebuild_file_tree(&jar_name, &paths);
+        self.toasts.info(t!("layout.entry_deleted", path = path));
+    }
+
+    fn rename_jar_entry(&mut self, old_path: String, new_path: String) {
+        let Some(new_path) = normalize_entry_path(&new_path) else {
+            self.toasts.error(t!("layout.entry_invalid_path"));
+            return;
+        };
+        if old_path == new_path {
+            return;
+        }
+        if self
+            .layout
+            .editor
+            .unsaved_paths()
+            .iter()
+            .any(|entry| entry == &old_path)
+        {
+            self.toasts
+                .warning(t!("layout.entry_unsaved", path = old_path));
+            return;
+        }
+        let Some((jar_name, paths)) = self.rename_loaded_jar_entry(&old_path, &new_path) else {
+            self.toasts
+                .error(t!("layout.entry_rename_failed", path = old_path));
+            return;
+        };
+        self.pending_decompiles
+            .retain(|(entry, _)| entry != &old_path);
+        self.layout.editor.rename_entry_tab(&old_path, &new_path);
+        if self.layout.file_panel.selected.as_deref() == Some(&old_path) {
+            self.layout.file_panel.selected = Some(new_path.clone());
+            self.layout.file_panel.scroll_to_selected = true;
+        }
+        self.rebuild_file_tree(&jar_name, &paths);
+        tree::reveal(&mut self.layout.file_panel.roots, &new_path);
+        self.toasts
+            .info(t!("layout.entry_renamed", old = old_path, new = new_path));
+    }
+
+    fn delete_loaded_jar_entry(&mut self, path: &str) -> Option<(String, Vec<String>)> {
+        let loaded = self.workspace.loaded_mut()?;
+        if !loaded.jar.delete(path) {
+            return None;
+        }
+        let paths = refresh_loaded_entry_indexes(loaded);
+        Some((loaded.jar.name.clone(), paths))
+    }
+
+    fn rename_loaded_jar_entry(
+        &mut self,
+        old_path: &str,
+        new_path: &str,
+    ) -> Option<(String, Vec<String>)> {
+        let loaded = self.workspace.loaded_mut()?;
+        if loaded.jar.get(old_path).is_none() || loaded.jar.get(new_path).is_some() {
+            return None;
+        }
+        if !loaded.jar.rename(old_path, new_path) {
+            return None;
+        }
+        let paths = refresh_loaded_entry_indexes(loaded);
+        Some((loaded.jar.name.clone(), paths))
+    }
+
+    fn rebuild_file_tree(&mut self, jar_name: &str, paths: &[String]) {
+        let path_refs: Vec<&str> = paths.iter().map(String::as_str).collect();
+        self.layout
+            .file_panel
+            .set_roots(tree::build_tree(jar_name, &path_refs));
     }
 
     fn handle_classpath_panel_action(&mut self) {
@@ -454,9 +563,12 @@ impl App {
             ClasspathAction::RemoveProject(path) => {
                 if let Some(loaded) = self.workspace.loaded_mut() {
                     let before = loaded.compile_classpath_entries.len();
-                    loaded.compile_classpath_entries.retain(|entry| entry != &path);
+                    loaded
+                        .compile_classpath_entries
+                        .retain(|entry| entry != &path);
                     if loaded.compile_classpath_entries.len() != before {
-                        self.toasts.info(t!("layout.classpath_removed", path = path.display()));
+                        self.toasts
+                            .info(t!("layout.classpath_removed", path = path.display()));
                     }
                 }
             }
@@ -470,7 +582,8 @@ impl App {
                     if let Err(e) = self.settings.save() {
                         log::warn!("保存全局 classpath 失败: {e}");
                     }
-                    self.toasts.info(t!("layout.classpath_removed", path = entry));
+                    self.toasts
+                        .info(t!("layout.classpath_removed", path = entry));
                 }
             }
         }
@@ -564,6 +677,34 @@ impl App {
         ctx.data_mut(|d| d.insert_temp::<(u64, f32)>(cache_id, (frame, t)));
         t
     }
+}
+
+/// 条目路径变化后刷新依赖路径列表的索引。
+fn refresh_loaded_entry_indexes(loaded: &mut LoadedState) -> Vec<String> {
+    let paths: Vec<String> = loaded.jar.paths().into_iter().map(str::to_string).collect();
+    let path_refs: Vec<&str> = paths.iter().map(String::as_str).collect();
+    loaded.class_resolver = ClassResolver::build(&path_refs);
+    loaded.search_index = None;
+    loaded.search_index_task = None;
+    loaded.search_index_progress = None;
+    loaded.search_index_total = 0;
+    paths
+}
+
+/// 将用户输入规范化为 JAR 条目路径。
+fn normalize_entry_path(input: &str) -> Option<String> {
+    let path = input.trim().replace('\\', "/");
+    let path = path.trim_start_matches('/').to_string();
+    if path.is_empty() || path.ends_with('/') {
+        return None;
+    }
+    if path
+        .split('/')
+        .any(|part| part.is_empty() || part == "." || part == "..")
+    {
+        return None;
+    }
+    Some(path)
 }
 
 /// 从总 rect 计算各区域的 rect

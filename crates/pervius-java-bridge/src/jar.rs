@@ -5,7 +5,7 @@
 use crate::decompiler::CachedSource;
 use crate::error::BridgeError;
 use sha2::{Digest, Sha256};
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::io::{Read, Write};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU32, Ordering};
@@ -50,6 +50,8 @@ tabookit::class! {
         entries: HashMap<String, Vec<u8>>,
         /// 已修改条目（路径 → 修改后的数据 + 反编译缓存）
         modified_entries: HashMap<String, ModifiedEntry>,
+        /// 待删除条目路径，保存或导出时从快照中排除
+        deleted_entries: HashSet<String>,
     }
 
     /// 带进度回报的打开方法（供后台线程调用）
@@ -86,11 +88,15 @@ tabookit::class! {
             file_size,
             entries,
             modified_entries: HashMap::new(),
+            deleted_entries: HashSet::new(),
         })
     }
 
     /// 获取条目内容（已修改条目返回修改后的数据）
     pub fn get(&self, path: &str) -> Option<&[u8]> {
+        if self.deleted_entries.contains(path) {
+            return None;
+        }
         if let Some(m) = self.modified_entries.get(path) {
             return Some(&m.data);
         }
@@ -99,6 +105,7 @@ tabookit::class! {
 
     /// 更新条目内容（写入已修改区，保留原始数据不动）
     pub fn put(&mut self, path: &str, data: Vec<u8>) {
+        self.deleted_entries.remove(path);
         match self.modified_entries.get_mut(path) {
             Some(m) => {
                 m.data = data;
@@ -116,18 +123,63 @@ tabookit::class! {
         }
     }
 
+    /// 删除条目内容（原始条目延迟到保存/导出时排除）
+    pub fn delete(&mut self, path: &str) -> bool {
+        if self.get(path).is_none() {
+            return false;
+        }
+        self.modified_entries.remove(path);
+        if self.entries.contains_key(path) {
+            self.deleted_entries.insert(path.to_string());
+        }
+        true
+    }
+
+    /// 重命名条目路径（保留当前可见字节内容）
+    pub fn rename(&mut self, old_path: &str, new_path: &str) -> bool {
+        if old_path == new_path {
+            return true;
+        }
+        if self.get(new_path).is_some() {
+            return false;
+        }
+        let Some(data) = self.get(old_path).map(|data| data.to_vec()) else {
+            return false;
+        };
+        let decompiled = self
+            .modified_entries
+            .get(old_path)
+            .and_then(|entry| entry.decompiled.clone());
+        if !self.delete(old_path) {
+            return false;
+        }
+        self.deleted_entries.remove(new_path);
+        self.modified_entries.insert(
+            new_path.to_string(),
+            ModifiedEntry {
+                data,
+                decompiled,
+            },
+        );
+        true
+    }
+
     /// 是否有任何已修改条目
     pub fn has_modified_entries(&self) -> bool {
-        !self.modified_entries.is_empty()
+        !self.modified_entries.is_empty() || !self.deleted_entries.is_empty()
     }
 
     /// 清除所有已修改条目（放弃变更时调用，恢复到原始数据）
     pub fn clear_modified(&mut self) {
         self.modified_entries.clear();
+        self.deleted_entries.clear();
     }
 
     /// 将已修改条目提交为新的内存基线（覆盖源 JAR 成功后调用）。
     pub fn commit_modified_from_file(&mut self, path: &Path) -> Result<(), BridgeError> {
+        for entry_path in self.deleted_entries.drain() {
+            self.entries.remove(&entry_path);
+        }
         for (entry_path, modified) in self.modified_entries.drain() {
             self.entries.insert(entry_path, modified.data);
         }
@@ -142,17 +194,20 @@ tabookit::class! {
 
     /// 条目是否已修改
     pub fn is_modified(&self, path: &str) -> bool {
-        self.modified_entries.contains_key(path)
+        self.modified_entries.contains_key(path) || self.deleted_entries.contains(path)
     }
 
     /// 已修改条目路径迭代器
     pub fn modified_paths(&self) -> impl Iterator<Item = &str> {
-        self.modified_entries.keys().map(|s| s.as_str())
+        self.modified_entries
+            .keys()
+            .chain(self.deleted_entries.iter())
+            .map(|s| s.as_str())
     }
 
     /// 已修改条目数量
     pub fn modified_count(&self) -> usize {
-        self.modified_entries.len()
+        self.modified_entries.len() + self.deleted_entries.len()
     }
 
     /// 缓存已修改条目的反编译结果
@@ -169,9 +224,14 @@ tabookit::class! {
 
     /// 获取排序后的条目路径列表
     pub fn paths(&self) -> Vec<&str> {
-        let mut paths: Vec<&str> = self.entries.keys().map(|s| s.as_str()).collect();
+        let mut paths: Vec<&str> = self
+            .entries
+            .keys()
+            .filter(|path| !self.deleted_entries.contains(*path))
+            .map(|s| s.as_str())
+            .collect();
         for path in self.modified_entries.keys().map(|s| s.as_str()) {
-            if !self.entries.contains_key(path) {
+            if !self.entries.contains_key(path) && !self.deleted_entries.contains(path) {
                 paths.push(path);
             }
         }
@@ -191,9 +251,14 @@ tabookit::class! {
     ///
     /// 返回排序后的 `(路径, 字节)` 列表，可安全移入后台线程。
     pub fn snapshot_entries(&self) -> Vec<(String, Vec<u8>)> {
-        let mut paths: Vec<String> = self.entries.keys().cloned().collect();
+        let mut paths: Vec<String> = self
+            .entries
+            .keys()
+            .filter(|path| !self.deleted_entries.contains(*path))
+            .cloned()
+            .collect();
         for path in self.modified_entries.keys() {
-            if !self.entries.contains_key(path) {
+            if !self.entries.contains_key(path) && !self.deleted_entries.contains(path) {
                 paths.push(path.clone());
             }
         }

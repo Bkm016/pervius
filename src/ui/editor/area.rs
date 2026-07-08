@@ -243,6 +243,31 @@ tabookit::class! {
         self.focused_tab()?.entry_path.clone()
     }
 
+    /// 关闭指定 JAR 条目的 tab（调用方已处理未保存检查）。
+    pub fn close_entry_tab(&mut self, entry_path: &str) {
+        let found = self
+            .dock_state
+            .find_tab_from(|tab| tab.entry_path.as_deref() == Some(entry_path));
+        if let Some(tab_path) = found {
+            self.dock_state.remove_tab(tab_path);
+        }
+    }
+
+    /// 重命名指定 JAR 条目的 tab 路径和标题。
+    pub fn rename_entry_tab(&mut self, old_path: &str, new_path: &str) {
+        let file_name = new_path.rsplit('/').next().unwrap_or(new_path);
+        let title = file_name.strip_suffix(".class").unwrap_or(file_name).to_string();
+        for (_, tab) in self.dock_state.iter_all_tabs_mut() {
+            if tab.entry_path.as_deref() == Some(old_path) {
+                tab.entry_path = Some(new_path.to_string());
+                tab.title = title.clone();
+            }
+        }
+        if let Some(saved) = self.saved_members.remove(old_path) {
+            self.saved_members.insert(new_path.to_string(), saved);
+        }
+    }
+
     /// 有编辑但未保存的 tab 条目路径
     pub fn unsaved_paths(&self) -> Vec<String> {
         self.dock_state
